@@ -16,6 +16,7 @@ import re
 import sys
 import time
 import urllib.parse
+from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -25,7 +26,37 @@ REPO_ROOT = Path(__file__).resolve().parent
 RULES_FILE = REPO_ROOT / "cultural_daily_sponsored_rules.md"
 
 
-def fetch_google_doc_export_html(doc_id: str, *, attempts: int = 3) -> str:
+def extract_google_doc_id(url: str) -> str:
+    """
+    Document id from a full Google Docs URL, or return bare id if already passed.
+
+    Supports:
+    - …/document/d/DOC_ID/…
+    - …/document/u/0/d/DOC_ID/… (and other /u/N/)
+    """
+    s = (url or "").strip()
+    m = re.search(r"/document/d/([a-zA-Z0-9_-]+)", s)
+    if m:
+        return m.group(1)
+    m = re.search(r"/document/u/\d+/d/([a-zA-Z0-9_-]+)", s)
+    if m:
+        return m.group(1)
+    if re.fullmatch(r"[a-zA-Z0-9_-]{10,}", s):
+        return s
+    raise ValueError(f"Could not parse Google Doc id from: {url!r}")
+
+
+def _normalize_gdoc_html(s: str) -> str:
+    """NBSP / ZWSP normalization for regex scans (positions stay stable enough for heuristics)."""
+    return (
+        (s or "")
+        .replace("\xa0", " ")
+        .replace("\u200b", "")
+        .replace("\ufeff", "")
+    )
+
+
+def fetch_google_doc_export_html(doc_id: str, *, attempts: int = 5) -> str:
     """Fetch `export?format=html` with short backoff on transient Google 5xx / 429."""
     import requests as rq
 
@@ -35,8 +66,8 @@ def fetch_google_doc_export_html(doc_id: str, *, attempts: int = 3) -> str:
     for i in range(attempts):
         r = rq.get(export_url, timeout=90, headers=headers)
         last = r
-        if r.status_code in (500, 502, 503, 429) and i + 1 < attempts:
-            time.sleep(1.5 * (i + 1))
+        if r.status_code in (500, 502, 503, 504, 429) and i + 1 < attempts:
+            time.sleep(2.0 * (i + 1))
             continue
         r.raise_for_status()
         return r.text
@@ -45,11 +76,9 @@ def fetch_google_doc_export_html(doc_id: str, *, attempts: int = 3) -> str:
     raise RuntimeError("fetch failed")
 
 
-def fetch_google_doc_export_by_url(url: str, *, attempts: int = 3) -> str:
-    m = re.search(r"/document/d/([a-zA-Z0-9_-]+)", url)
-    if not m:
-        raise ValueError(f"Bad doc URL: {url}")
-    return fetch_google_doc_export_html(m.group(1), attempts=attempts)
+def fetch_google_doc_export_by_url(url: str, *, attempts: int = 5) -> str:
+    doc_id = extract_google_doc_id(url)
+    return fetch_google_doc_export_html(doc_id, attempts=attempts)
 
 
 # ---------------------------------------------------------------------------
@@ -167,14 +196,18 @@ def classify_photo_credit_block(el: Tag, trace: List[dict]) -> Optional[dict]:
     D_CRED_* — `<p>` / `<li>` blocks that mention Photo + Pexels (Google Docs export).
     """
     raw_html = str(el)
-    text = el.get_text(" ", strip=True)
+    text = " ".join(
+        el.get_text(" ", strip=True).replace("\xa0", " ").replace("\u200b", "").split()
+    )
     if not re.search(r"Photo:\s*.+Pexels", text, re.I):
         return None
 
     if "<strong>Photo:" in raw_html or re.search(r"<strong>\s*Photo:", raw_html, re.I):
         _trace(trace, "D_CRED", "D_CRED_40_bold_photo", text[:120])
         case = "D_CRED_40_bold_photo"
-    elif re.search(r"<em>\s*<a[^>]+pexels\.com", raw_html, re.I):
+    elif re.search(
+        r"<em>\s*<a[^>]+href=[\"']https?://(?:www\.)?pexels\.com", raw_html, re.I
+    ):
         _trace(trace, "D_CRED", "D_CRED_10_em_a_pexels", text[:120])
         case = "D_CRED_10_em_a_pexels"
     elif re.search(r"<a[^>]+pexels\.com[^>]*>.*Photo:", raw_html, re.I):
@@ -266,32 +299,33 @@ def classify_anchor(a: Tag, trace: List[dict]) -> dict:
 
 def analyze_body_structure(soup: BeautifulSoup, full_html: str, trace: List[dict]) -> dict:
     """D_BODY_* — headings, hr, nextpage, donation, tail order heuristics on export HTML."""
+    norm = _normalize_gdoc_html(full_html)
     h1 = len(soup.find_all("h1"))
     h2 = len(soup.find_all("h2"))
     h3 = len(soup.find_all("h3"))
-    has_hr = bool(soup.find_all("hr")) or "<hr" in full_html.lower()
-    has_nextpage = "<!--nextpage-->" in full_html
+    has_hr = bool(soup.find_all("hr")) or "<hr" in norm.lower()
+    has_nextpage = "<!--nextpage-->" in norm
     has_donation = (
-        "CLICK HERE TO DONATE" in full_html
-        or "culturaldaily.com/support" in full_html.lower()
+        "CLICK HERE TO DONATE" in norm
+        or "culturaldaily.com/support" in norm.lower()
     )
 
     cite_em_a = bool(
         re.search(
             r"<(?:p|li|div)[^>]*>\s*<em>\s*<a[^>]+href=[\"']https?://(?:www\.)?pexels\.com",
-            full_html,
+            norm,
             re.I | re.S,
         )
     )
-    cite_loose = bool(re.search(r"Photo:\s*.+via\s+Pexels", full_html, re.I))
+    cite_loose = bool(re.search(r"Photo:\s*.+via\s+Pexels", norm, re.I))
 
     last_photo = None
-    for m in re.finditer(r"Photo:\s*.+via\s+Pexels", full_html, re.I):
+    for m in re.finditer(r"Photo:\s*.+via\s+Pexels", norm, re.I):
         last_photo = m.start()
-    hr_pos = full_html.lower().find("<hr")
-    don_pos = full_html.find("CLICK HERE TO DONATE")
+    hr_pos = norm.lower().find("<hr")
+    don_pos = norm.find("CLICK HERE TO DONATE")
     if don_pos < 0:
-        don_pos = full_html.lower().find("culturaldaily.com/support")
+        don_pos = norm.lower().find("culturaldaily.com/support")
 
     order_ok: Optional[bool] = None
     if last_photo is not None and hr_pos >= 0 and don_pos >= 0:
@@ -355,9 +389,10 @@ def parse_google_doc_intake(
     trace: List[dict] = []
     doc_id = ""
     if source_url:
-        m = re.search(r"/document/d/([a-zA-Z0-9_-]+)", source_url)
-        if m:
-            doc_id = m.group(1)
+        try:
+            doc_id = extract_google_doc_id(source_url)
+        except ValueError:
+            doc_id = ""
 
     rules_path = rules_path or RULES_FILE
     rules_digest = load_rules_digest() if rules_path.exists() else ""
@@ -441,7 +476,7 @@ def batch_parse_training_docs(
     `fetcher(url) -> html` injectable for tests; default is requests Google export.
     """
     def default_fetch(url: str) -> str:
-        return fetch_google_doc_export_by_url(url, attempts=3)
+        return fetch_google_doc_export_by_url(url, attempts=5)
 
     fetch = fetcher or default_fetch
     urls = [
@@ -459,10 +494,34 @@ def batch_parse_training_docs(
             results.append({"url": url, "intake": intake})
         except Exception as e:  # noqa: BLE001
             errors.append({"url": url, "error": str(e)[:500]})
+    err_summary: Counter = Counter()
+    for e in errors:
+        msg = e.get("error", "")
+        if "401" in msg:
+            err_summary["401_unauthorized"] += 1
+        elif "403" in msg:
+            err_summary["403_forbidden"] += 1
+        elif "404" in msg:
+            err_summary["404_not_found"] += 1
+        elif "410" in msg:
+            err_summary["410_gone"] += 1
+        elif "429" in msg:
+            err_summary["429_rate_limited"] += 1
+        elif "500" in msg:
+            err_summary["500_server"] += 1
+        elif "502" in msg:
+            err_summary["502_bad_gateway"] += 1
+        elif "503" in msg:
+            err_summary["503_unavailable"] += 1
+        elif "504" in msg:
+            err_summary["504_gateway_timeout"] += 1
+        else:
+            err_summary["other"] += 1
     report = {
         "doc_count_requested": len(urls),
         "parsed_ok": len(results),
         "errors": errors,
+        "error_summary": dict(err_summary),
         "results": results,
     }
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -495,7 +554,7 @@ def main(argv: List[str]) -> None:
         )
         raise SystemExit(2)
     url = argv[1]
-    html = fetch_google_doc_export_by_url(url, attempts=3)
+    html = fetch_google_doc_export_by_url(url, attempts=5)
     intake = parse_google_doc_intake(html, source_url=url)
     print(json.dumps(intake, indent=2, ensure_ascii=False))
 

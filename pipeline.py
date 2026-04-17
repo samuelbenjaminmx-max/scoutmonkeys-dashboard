@@ -117,10 +117,10 @@ def donation_html_for(site: dict) -> str:
 
 
 def gdoc_id_from_url(url: str) -> str:
-    m = re.search(r"/document/d/([a-zA-Z0-9_-]+)", url)
-    if not m:
-        raise ValueError(f"Could not parse Google Doc id from URL: {url}")
-    return m.group(1)
+    try:
+        return doc_parser.extract_google_doc_id(url)
+    except ValueError as exc:
+        raise ValueError(f"Could not parse Google Doc id from URL: {url}") from exc
 
 
 def fetch_gdoc_html(doc_url: str) -> str:
