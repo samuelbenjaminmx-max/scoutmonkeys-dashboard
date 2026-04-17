@@ -7,3 +7,4 @@ __pycache__/
 data/our_friends_audit.json
 our_friends_audit.json
 audit_stderr.txt
+data/training_parse_report.json

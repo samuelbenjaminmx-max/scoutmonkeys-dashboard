@@ -19,6 +19,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 from PIL import Image, ImageOps
 
+import doc_parser
+
 # ---------------------------------------------------------------------------
 # Environment
 # ---------------------------------------------------------------------------
@@ -180,7 +182,9 @@ def _extract_json_blob(text: str) -> dict:
     raise ValueError("Anthropic response did not contain JSON")
 
 
-def plan_from_gdoc_html(site: dict, gdoc_html: str) -> dict:
+def plan_from_gdoc_html(
+    site: dict, gdoc_html: str, intake: Optional[dict] = None
+) -> dict:
     system = textwrap.dedent(
         f"""
         You are the Scoutmonkeys editorial formatter for {site["site_label"]}.
@@ -200,13 +204,27 @@ def plan_from_gdoc_html(site: dict, gdoc_html: str) -> dict:
         - hero_pexels_query: 3-6 word search query to find a wide banner image on Pexels
         - photographer_fallback_name: string
         - category_hint: short string like "travel", "film", "books", "food", "music", "theater", "art"
+
+        If MACHINE_INTAKE_JSON is present, treat it as authoritative counts and link inventory from a
+        deterministic parser aligned with cultural_daily_sponsored_rules.md. Preserve paid-link URLs
+        and anchor meaning; fix structural issues (citation shape, bolding) in your HTML output.
         """
     ).strip()
+
+    machine = ""
+    if intake:
+        machine = (
+            "\nMACHINE_INTAKE_JSON_START\n"
+            + doc_parser.intake_json_for_llm(intake, max_chars=50_000)
+            + "\nMACHINE_INTAKE_JSON_END\n"
+        )
 
     user = (
         "GOOGLE_DOC_HTML_START\n"
         + gdoc_html[:240_000]
-        + "\nGOOGLE_DOC_HTML_END\n\nReturn JSON only."
+        + "\nGOOGLE_DOC_HTML_END\n"
+        + machine
+        + "\nReturn JSON only."
     )
     raw = _anthropic_messages(system, user)
     return _extract_json_blob(raw)
@@ -622,8 +640,19 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     print(f"[1] Fetching Google Doc…")
     ghtml = fetch_gdoc_html(gdoc_url)
 
+    print(f"[1b] Doc intake parse (cultural_daily_sponsored_rules contract)…")
+    intake = doc_parser.parse_google_doc_intake(ghtml, source_url=gdoc_url)
+    summ = intake.get("summary") or {}
+    print(
+        f"     images={summ.get('image_count')} credits={summ.get('photo_credit_block_count')} "
+        f"links={summ.get('hyperlink_count')} paid_style={summ.get('paid_anchor_count')}"
+    )
+    flags = intake.get("contract_flags") or []
+    if flags:
+        print(f"     contract_flags: {', '.join(flags)}")
+
     print(f"[2] Planning layout with Anthropic…")
-    plan = plan_from_gdoc_html(site, ghtml)
+    plan = plan_from_gdoc_html(site, ghtml, intake=intake)
     topic = re.sub(r"[^a-z0-9-]+", "-", (plan.get("topic_slug") or "topic").lower()).strip("-")
     title = (plan.get("post_title") or "Untitled").strip()
     body = plan.get("article_body_html") or ""
@@ -723,6 +752,8 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         "title": post_title,
         "hero_url": hero_url,
         "social_url": social_url,
+        "intake_summary": intake.get("summary"),
+        "intake_contract_flags": intake.get("contract_flags"),
     }
 
 
