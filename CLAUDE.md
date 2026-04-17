@@ -43,7 +43,8 @@ railway variables --json | python3 -c "import json,sys; d=json.load(sys.stdin); 
 
 ## GitHub push (HTTPS + `gh`)
 
-Remote: `https://github.com/samuelshemin/scoutmonkeys-dashboard.git`
+Remote: `https://github.com/samuelbenjaminmx-max/scoutmonkeys-dashboard.git`  
+_(The path `github.com/samuelshemin/…` is not a valid GitHub user or org; the repository was created under the authenticated account instead.)_
 
 1. Install the [GitHub CLI](https://cli.github.com/) (`gh`) if needed (Homebrew: `brew install gh`, or download the macOS `gh` release and add `bin` to your `PATH`).
 2. Authenticate over HTTPS (device flow opens the browser):
@@ -57,7 +58,7 @@ Remote: `https://github.com/samuelshemin/scoutmonkeys-dashboard.git`
 
    ```bash
    cd ~/Desktop/scoutmonkeys-dashboard
-   git remote set-url origin https://github.com/samuelshemin/scoutmonkeys-dashboard.git
+   git remote set-url origin https://github.com/samuelbenjaminmx-max/scoutmonkeys-dashboard.git
    git push -u origin main
    ```
 
