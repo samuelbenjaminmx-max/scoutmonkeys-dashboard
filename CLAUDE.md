@@ -41,6 +41,42 @@ railway variables --json | python3 -c "import json,sys; d=json.load(sys.stdin); 
 
 **Never commit `.env` to a public GitHub repository.** Railway remains the source of truth for production secrets.
 
+## GitHub push (HTTPS + `gh`)
+
+Remote: `https://github.com/samuelshemin/scoutmonkeys-dashboard.git`
+
+1. Install the [GitHub CLI](https://cli.github.com/) (`gh`) if needed (Homebrew: `brew install gh`, or download the macOS `gh` release and add `bin` to your `PATH`).
+2. Authenticate over HTTPS (device flow opens the browser):
+
+   ```bash
+   gh auth login -h github.com -p https -w
+   gh auth setup-git
+   ```
+
+3. Push:
+
+   ```bash
+   cd ~/Desktop/scoutmonkeys-dashboard
+   git remote set-url origin https://github.com/samuelshemin/scoutmonkeys-dashboard.git
+   git push -u origin main
+   ```
+
+`gh auth setup-git` wires Git’s HTTPS credential helper to `gh`, so `git push` uses your logged-in GitHub account.
+
+## Our Friends audit + `cultural_daily_sponsored_rules.md`
+
+The audit scans **all published posts** and keeps those with `author == OUR_FRIENDS_AUTHOR_ID` (default **19**), because `?author=19` returns HTTP 500 on Cultural Daily.
+
+```bash
+mkdir -p data
+AUDIT_JSON_OUT=data/our_friends_audit.json python3 scripts/audit_our_friends_posts.py > /dev/null
+python3 scripts/build_cultural_daily_sponsored_rules.py data/our_friends_audit.json cultural_daily_sponsored_rules.md
+```
+
+`data/our_friends_audit.json` is gitignored (large, credential-derived). The generated **`cultural_daily_sponsored_rules.md`** is safe to commit: it embeds aggregate counts and the normative rules summary.
+
+Optional: `AUDIT_MAX_POSTS=500` for a faster sample run.
+
 ## Site rules (`cd` / `dcr`)
 
 - **Prefixes:** `CD-…` vs `DCR-…` for attachment titles (`{prefix}-{topic}-hero|social|insert-N`).
