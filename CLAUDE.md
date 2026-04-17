@@ -14,6 +14,10 @@ This repository powers the **Scoutmonkeys** publishing dashboard and CLI pipelin
   `python pipeline.py "<google doc url>" cd`  
   Optional site: `dcr` (requires `DCR_*` env vars and compatible SEO endpoints).
 - **Web dashboard:** `gunicorn app:app` (Railway sets `PORT`; use `Procfile` locally or on deploy).
+- **Doc intake parse (batch):**  
+  `python doc_parser.py --batch data/training_docs.txt --out data/training_parse_report.json`  
+  Every `pipeline.py` run parses the export HTML first (`doc_parser.parse_google_doc_intake`) and passes structured JSON to Claude alongside `cultural_daily_sponsored_rules.md` contract heuristics.  
+  The batch fetch retries transient Google **500 / 502 / 503 / 429** responses; **401** (private) and **410** (removed) docs stay in `training_parse_report.json` → `errors`.
 
 ## Environment variables
 
