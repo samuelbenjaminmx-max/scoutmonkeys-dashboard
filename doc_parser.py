@@ -2,6 +2,8 @@
 Google Doc HTML intake parser (export?format=html).
 
 Uses `cultural_daily_sponsored_rules.md` as the normative contract reference.
+When `CRITICAL_RULES.md` exists in the repo, its text is prepended to machine intake JSON for Claude
+(pipeline-wide override — see `CLAUDE.md`).
 Implements an explicit decision tree for images, credits, and body structure.
 **Http(s) anchors are inventoried only** (href, anchor text, bold, target, nofollow,
 inline color) — there is no editorial-vs-paid taxonomy: on this site every body
@@ -26,6 +28,7 @@ from bs4 import BeautifulSoup, Tag
 
 REPO_ROOT = Path(__file__).resolve().parent
 RULES_FILE = REPO_ROOT / "cultural_daily_sponsored_rules.md"
+CRITICAL_RULES_FILE = REPO_ROOT / "CRITICAL_RULES.md"
 
 
 def extract_google_doc_id(url: str) -> str:
@@ -457,9 +460,14 @@ def intake_json_for_llm(intake: dict, max_chars: int = 48_000) -> str:
     slim = {k: v for k, v in intake.items() if k != "decision_trace"}
     slim["decision_trace_tail"] = (intake.get("decision_trace") or [])[-40:]
     s = json.dumps(slim, indent=2, ensure_ascii=False)
-    if len(s) > max_chars:
-        return s[:max_chars] + "\n…(truncated)…\n"
-    return s
+    prefix = ""
+    if CRITICAL_RULES_FILE.exists():
+        cr = CRITICAL_RULES_FILE.read_text(encoding="utf-8", errors="replace")[:14_000]
+        prefix = "CRITICAL_RULES_MD_START\n" + cr + "\nCRITICAL_RULES_MD_END\n\n"
+    out = prefix + s
+    if len(out) > max_chars:
+        return out[:max_chars] + "\n…(truncated)…\n"
+    return out
 
 
 # ---------------------------------------------------------------------------

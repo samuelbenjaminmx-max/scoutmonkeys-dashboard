@@ -4,7 +4,8 @@ This repository powers the **Scoutmonkeys** publishing dashboard and CLI pipelin
 
 ## Authority
 
-1. **`QA.md`** — must-pass checklist before calling a job complete.
+0. **`CRITICAL_RULES.md`** — when this file exists in the repository, it **overrides** every other instruction (including this file, `QA.md`, `cultural_daily_sponsored_rules.md`, and default Claude behavior). The pipeline loads it into Anthropic context and branches on verbatim H1, faithful body copy, client hero images (no Pexels replacement when a Doc image exists), **Check This Out** category on CD, compact focus keyword, and stricter QA hooks.
+1. **`QA.md`** — must-pass checklist before calling a job complete (subordinate to `CRITICAL_RULES.md` when both apply).
 2. **This file** — full operating rules for humans and automation.
 3. **Live WordPress / plugin behavior** — if production differs, update the docs and `pipeline.py` together.
 
@@ -143,7 +144,7 @@ End of HTML (machine order):
 
 ## QA
 
-- `pipeline.verify_post(...)` encodes the **`QA.md` checklist** (21 checks on CD). Do not mark a publish as “complete” if QA fails.
+- `pipeline.verify_post(...)` encodes the **`QA.md` checklist** (21 checks on CD, plus extra checks when `CRITICAL_RULES.md` is active). Generated hero/social JPEGs are asserted **exact** pixel dimensions in `pipeline.run` before upload. Do not mark a publish as “complete” if QA fails.
 - WhatsApp is sent when the draft is saved **after** the QA step runs (see `pipeline.run`); fix Twilio placeholders on Railway for real sends.
 
 ## DCR caveat

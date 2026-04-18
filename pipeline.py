@@ -14,6 +14,7 @@ import os
 import re
 import sys
 import textwrap
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -21,6 +22,9 @@ from bs4 import BeautifulSoup
 from PIL import Image, ImageOps
 
 import doc_parser
+
+REPO_ROOT = Path(__file__).resolve().parent
+CRITICAL_RULES_PATH = REPO_ROOT / "CRITICAL_RULES.md"
 
 # ---------------------------------------------------------------------------
 # Environment
@@ -141,13 +145,13 @@ def fetch_gdoc_html(doc_url: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _anthropic_messages(system: str, user: str) -> str:
+def _anthropic_messages(system: str, user: str, *, temperature: float = 0.2) -> str:
     if not ANTHROPIC_KEY:
         raise RuntimeError("ANTHROPIC_API_KEY is not set")
     payload = {
         "model": ANTHROPIC_MODEL,
         "max_tokens": 12000,
-        "temperature": 0.2,
+        "temperature": temperature,
         "system": system,
         "messages": [{"role": "user", "content": user}],
     }
@@ -183,10 +187,8 @@ def _extract_json_blob(text: str) -> dict:
     raise ValueError("Anthropic response did not contain JSON")
 
 
-def plan_from_gdoc_html(
-    site: dict, gdoc_html: str, intake: Optional[dict] = None
-) -> dict:
-    system = textwrap.dedent(
+def _default_plan_system(site: dict) -> str:
+    return textwrap.dedent(
         f"""
         You are the Scoutmonkeys sponsored-content formatter for {site["site_label"]}.
         Convert the supplied Google Docs HTML into pipeline JSON.
@@ -221,6 +223,43 @@ def plan_from_gdoc_html(
         """
     ).strip()
 
+
+def plan_from_gdoc_html(
+    site: dict,
+    gdoc_html: str,
+    intake: Optional[dict] = None,
+    *,
+    critical_rules: bool = False,
+    machine_h1: str = "",
+    client_image_src: Optional[str] = None,
+) -> dict:
+    base = _default_plan_system(site)
+    critical_block = load_critical_rules_text() if critical_rules else ""
+    if critical_rules and critical_block:
+        system = (
+            "THE FOLLOWING CRITICAL_RULES.md OVERRIDES ANY CONFLICTING INSTRUCTION BELOW.\n\n"
+            + critical_block
+            + "\n\n--- SUBORDINATE: JSON + TECHNICAL CONSTRAINTS ---\n\n"
+            + base
+            + textwrap.dedent(
+                """
+
+                When CRITICAL_RULES applies to this run (this message includes the file above):
+                - post_title MUST match MACHINE_EXTRACTED_H1 exactly (character-for-character).
+                - article_body_html MUST preserve source wording. No paraphrase, summary, tone rewrite,
+                  or “improvement”. Only minimal HTML structure fixes and wrapping body http(s) links as
+                  <a href="URL" target="_blank"><strong>exact anchor text</strong></a> without changing words.
+                - focus_keyword: at most 4 words, compact core subject only (never the full H1).
+                - meta_description: <=160 chars; use only wording supported by the supplied HTML
+                  (no new factual claims).
+                - category_hint must be exactly: Check This Out
+                - If MACHINE_CLIENT_IMAGE_SRC is not "(none)", set hero_pexels_query to "" (empty string).
+                """
+            ).strip()
+        )
+    else:
+        system = base
+
     machine = ""
     if intake:
         machine = (
@@ -229,14 +268,26 @@ def plan_from_gdoc_html(
             + "\nMACHINE_INTAKE_JSON_END\n"
         )
 
-    user = (
-        "GOOGLE_DOC_HTML_START\n"
-        + gdoc_html[:240_000]
-        + "\nGOOGLE_DOC_HTML_END\n"
-        + machine
-        + "\nReturn JSON only."
-    )
-    raw = _anthropic_messages(system, user)
+    user_parts = [
+        "GOOGLE_DOC_HTML_START\n",
+        gdoc_html[:240_000],
+        "\nGOOGLE_DOC_HTML_END\n",
+    ]
+    if critical_rules:
+        user_parts.append(
+            "\nMACHINE_EXTRACTED_H1 (post_title MUST match exactly):\n"
+            + (machine_h1 or "(empty — extract from HTML failed)")
+            + "\n"
+        )
+        user_parts.append(
+            "\nMACHINE_CLIENT_IMAGE_SRC:\n" + (client_image_src or "(none)") + "\n"
+        )
+    user_parts.append(machine)
+    user_parts.append("\nReturn JSON only.")
+    user = "".join(user_parts)
+
+    temp = 0.05 if critical_rules else 0.2
+    raw = _anthropic_messages(system, user, temperature=temp)
     try:
         return _extract_json_blob(raw)
     except (ValueError, json.JSONDecodeError) as exc:
@@ -246,14 +297,15 @@ def plan_from_gdoc_html(
             "article_body_html, focus_keyword, seo_title, meta_description, hero_pexels_query, "
             "photographer_fallback_name, category_hint. "
             "Hard site rule: every body http(s) link is paid dofollow — "
-            "<a href=… target=_blank><strong>…</strong></a> with no rel=nofollow; hero_pexels_query non-empty."
+            "<a href=… target=_blank><strong>…</strong></a> with no rel=nofollow. "
+            "If CRITICAL_RULES applied, post_title must match MACHINE_EXTRACTED_H1 and hero_pexels_query may be empty when client image exists."
         )
         fix_user = (
             "The text below was meant to be one JSON object but it is invalid JSON (often "
             "unescaped quotes or raw newlines inside article_body_html). "
             f"Parse error: {exc}\n\nTEXT:\n{raw[:180_000]}"
         )
-        raw2 = _anthropic_messages(fix_system, fix_user)
+        raw2 = _anthropic_messages(fix_system, fix_user, temperature=temp)
         return _extract_json_blob(raw2)
 
 
@@ -367,6 +419,139 @@ def build_resized_pair(site: dict, hero_photo: dict) -> Tuple[Image.Image, Image
     return hero, social
 
 
+def critical_rules_active() -> bool:
+    return CRITICAL_RULES_PATH.is_file()
+
+
+def load_critical_rules_text(max_chars: int = 28_000) -> str:
+    if not critical_rules_active():
+        return ""
+    return CRITICAL_RULES_PATH.read_text(encoding="utf-8", errors="replace")[:max_chars]
+
+
+def extract_h1_from_gdoc_html(ghtml: str) -> str:
+    soup = BeautifulSoup(ghtml, "html.parser")
+    h1 = soup.find("h1")
+    if h1:
+        t = h1.get_text(" ", strip=True)
+        if t:
+            return t
+    for p in soup.find_all("p"):
+        cls = " ".join(p.get("class") or []).lower()
+        if "title" in cls:
+            t = p.get_text(" ", strip=True)
+            if t:
+                return t
+    tit = soup.find("title")
+    if tit and tit.string:
+        return tit.string.split(" - ")[0].strip()
+    return ""
+
+
+def first_client_image_src_from_gdoc(ghtml: str) -> Optional[str]:
+    soup = BeautifulSoup(ghtml, "html.parser")
+    for img in soup.find_all("img"):
+        src = (img.get("src") or "").strip()
+        if not src or src.startswith("blob:"):
+            continue
+        if src.startswith(("http://", "https://", "data:")):
+            return src
+    return None
+
+
+def _pil_image_from_src(src: str) -> Image.Image:
+    src = (src or "").strip()
+    if src.startswith("data:"):
+        import base64
+
+        _, b64 = src.split(",", 1)
+        raw = base64.b64decode(b64)
+        return Image.open(io.BytesIO(raw)).convert("RGB")
+    r = requests.get(
+        src,
+        timeout=120,
+        headers={"User-Agent": "ScoutmonkeysPipeline/1.0"},
+    )
+    r.raise_for_status()
+    return Image.open(io.BytesIO(r.content)).convert("RGB")
+
+
+def build_resized_pair_from_pil(site: dict, img: Image.Image) -> Tuple[Image.Image, Image.Image]:
+    hero = _resize_cover_ceil(img, site["hero_w"], site["hero_h"])
+    social = _resize_cover_ceil(img, site["social_w"], site["social_h"])
+    return hero, social
+
+
+def attempt_image_provenance(img: Image.Image) -> Tuple[Optional[str], str, List[str]]:
+    """CRITICAL_RULES §4 — hook for reverse search / EXIF metadata."""
+    _ = img
+    return None, "Client-supplied image", ["reverse_image_lookup_not_implemented"]
+
+
+def compact_focus_keyword(raw: str, *, max_words: int = 4, max_len: int = 48) -> str:
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    words = raw.split()
+    if len(words) > max_words:
+        raw = " ".join(words[:max_words])
+    return raw[:max_len].rstrip(" -–—")
+
+
+def derive_meta_from_gdoc_first_paragraph(ghtml: str, max_len: int = 160) -> str:
+    soup = BeautifulSoup(ghtml, "html.parser")
+    for p in soup.find_all("p"):
+        t = p.get_text(" ", strip=True)
+        if len(t) >= 40:
+            if len(t) <= max_len:
+                return t
+            cut = t[: max_len - 3].rsplit(" ", 1)[0]
+            return cut + "..."
+    return ""
+
+
+def client_photo_citation_html(credit_url: Optional[str], credit_label: str) -> str:
+    label = (credit_label or "Client-supplied image").strip()
+    if credit_url:
+        return (
+            f'<p><em><a href="{credit_url}" target="_blank" rel="nofollow noopener">'
+            f"Photo: {label}</a></em></p>"
+        )
+    return f"<p><em>Photo: {label}</em></p>"
+
+
+def resolve_check_this_out_category(site: dict) -> int:
+    wp, auth = wp_auth(site)
+    for slug in ("check-this-out", "check-this-out-1", "check-this-out-2"):
+        r = requests.get(
+            f"{wp}/wp-json/wp/v2/categories",
+            auth=auth,
+            params={"slug": slug},
+            timeout=30,
+        )
+        r.raise_for_status()
+        rows = r.json()
+        if rows:
+            return int(rows[0]["id"])
+    r = requests.get(
+        f"{wp}/wp-json/wp/v2/categories",
+        auth=auth,
+        params={"search": "Check This Out", "per_page": 30},
+        timeout=30,
+    )
+    r.raise_for_status()
+    for row in r.json():
+        name = (row.get("name") or "").lower()
+        slug = (row.get("slug") or "").lower()
+        if "check" in name and "out" in name:
+            return int(row["id"])
+        if "check" in slug and "out" in slug:
+            return int(row["id"])
+    raise RuntimeError(
+        "CRITICAL_RULES: WordPress category 'Check This Out' not found — create it or fix the slug."
+    )
+
+
 def photographer_meta(photo: dict) -> Tuple[str, str, str]:
     name = (photo.get("photographer") or "").strip() or "Photographer"
     profile = (photo.get("photographer_url") or "").strip()
@@ -464,8 +649,16 @@ def create_wp_draft(
     return post
 
 
-def push_aioseo_and_cdseo(site: dict, post_id: int, seo: dict, og_custom_url: str) -> None:
+def push_aioseo_and_cdseo(
+    site: dict,
+    post_id: int,
+    seo: dict,
+    og_custom_url: str,
+    *,
+    seo_title_max: Optional[int] = None,
+) -> None:
     wp, auth = wp_auth(site)
+    st_clip = int(seo_title_max) if seo_title_max is not None else int(site["seo_title_max"])
     # 1) AIOSEO custom endpoint (Cultural Daily)
     body = {
         "postId": post_id,
@@ -495,7 +688,7 @@ def push_aioseo_and_cdseo(site: dict, post_id: int, seo: dict, og_custom_url: st
         auth=auth,
         json={
             "post_id": post_id,
-            "seo_title": (seo.get("seo_title") or "")[: site["seo_title_max"]],
+            "seo_title": (seo.get("seo_title") or "")[:st_clip],
             "meta_description": (seo.get("meta_description") or "")[:160],
             "focus_keyphrase": (seo.get("focus_keyword") or "")[:191],
             "og_image_url": og_custom_url,
@@ -575,9 +768,12 @@ def verify_post(
     hero_id: int,
     social_id: int,
     title_max: int,
+    *,
+    expect_exact_title: Optional[str] = None,
+    critical_rules: bool = False,
 ) -> bool:
     """
-    Run QA checks aligned with QA.md / CLAUDE.md.
+    Run QA checks aligned with QA.md / CLAUDE.md / CRITICAL_RULES.md.
     The `seo` dict is accepted for backwards compatibility; live values are read from WP.
     """
     _ = seo
@@ -609,14 +805,28 @@ def verify_post(
         checks.append((label, ok))
 
     raw_title = post["title"]["raw"]
-    chk(f"Post title ≤{title_max} chars", len(raw_title) <= title_max, f"{len(raw_title)} chars")
+    if expect_exact_title:
+        chk(
+            "Post title matches extracted H1 (CRITICAL_RULES)",
+            raw_title == expect_exact_title,
+            f"{len(raw_title)} chars vs expected {len(expect_exact_title)}",
+        )
+    else:
+        chk(f"Post title ≤{title_max} chars", len(raw_title) <= title_max, f"{len(raw_title)} chars")
 
     seo_title = seo_r.get("aioseo_db", {}).get("title") or ""
-    chk(
-        f"SEO title ≤{site['seo_title_max']} chars",
-        0 < len(seo_title) <= site["seo_title_max"],
-        f"{len(seo_title)} chars",
-    )
+    if critical_rules and expect_exact_title:
+        chk(
+            "SEO title matches H1 (CRITICAL_RULES)",
+            seo_title == expect_exact_title or seo_title == raw_title,
+            f"{len(seo_title)} chars",
+        )
+    else:
+        chk(
+            f"SEO title ≤{site['seo_title_max']} chars",
+            0 < len(seo_title) <= site["seo_title_max"],
+            f"{len(seo_title)} chars",
+        )
 
     meta = seo_r.get("aioseo_db", {}).get("description") or ""
     chk("Meta description ≤160 chars", 0 < len(meta) <= 160, f"{len(meta)} chars")
@@ -628,6 +838,13 @@ def verify_post(
     except Exception:
         kw = ""
     chk("Focus keyword set", bool(kw), f"'{kw}'")
+    if critical_rules:
+        kw_words = len(kw.split()) if kw else 0
+        chk(
+            "Focus keyword short (CRITICAL_RULES)",
+            bool(kw) and kw_words <= 5 and len(kw) <= 56,
+            f"{kw_words} words, {len(kw)} chars",
+        )
 
     chk("Featured image = hero", post.get("featured_media") == hero_id)
 
@@ -684,12 +901,22 @@ def verify_post(
 
     chk("Paid links bold in content", "<strong>" in c)
 
-    cite_ok = bool(
+    cite_pexels = bool(
         re.search(
             r'<p><em><a href="https://www\.pexels\.com[^"]*"[^>]*>Photo: .+ via Pexels</a></em></p>',
             c,
+            re.I,
         )
     )
+    cite_other = bool(
+        re.search(
+            r'<p><em><a href="https?://[^"]+"[^>]*rel="nofollow noopener"[^>]*>Photo:\s*.+</a></em></p>',
+            c,
+            re.I,
+        )
+    )
+    cite_client_plain = bool(re.search(r"<p><em>Photo:\s*.+</em></p>", c, re.I))
+    cite_ok = cite_pexels or cite_other or cite_client_plain
     chk("Citation: italic+hyperlinked, not bold", cite_ok)
     chk("Citation NOT bold", "<strong>Photo:" not in c)
 
@@ -769,35 +996,88 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     if flags:
         print(f"     contract_flags: {', '.join(flags)}")
 
+    cr = critical_rules_active()
+    machine_h1 = extract_h1_from_gdoc_html(ghtml).strip()
+    client_src = first_client_image_src_from_gdoc(ghtml)
+    manual_flags: List[str] = []
+
     print(f"[2] Planning layout with Anthropic…")
-    plan = plan_from_gdoc_html(site, ghtml, intake=intake)
+    if cr:
+        print("     CRITICAL_RULES.md is present — enforcing verbatim H1, faithful body, client hero, category.")
+    plan = plan_from_gdoc_html(
+        site,
+        ghtml,
+        intake=intake,
+        critical_rules=cr,
+        machine_h1=machine_h1,
+        client_image_src=client_src,
+    )
     topic = re.sub(r"[^a-z0-9-]+", "-", (plan.get("topic_slug") or "topic").lower()).strip("-")
     title = (plan.get("post_title") or "Untitled").strip()
     body = plan.get("article_body_html") or ""
     focus = (plan.get("focus_keyword") or "").strip()
-    seo_title = (plan.get("seo_title") or title)[: site["seo_title_max"]]
-    meta = (plan.get("meta_description") or "")[:160]
+    seo_title = (plan.get("seo_title") or title).strip()
+    meta = (plan.get("meta_description") or "").strip()[:160]
     hero_q = (plan.get("hero_pexels_query") or title).strip()
-    cat_hint = (plan.get("category_hint") or "culture").strip()
+    cat_hint = (plan.get("category_hint") or "").strip() or "culture"
+
+    if cr:
+        if machine_h1:
+            if title != machine_h1:
+                print(f"[2c] Forcing post_title to extracted H1 (was {len(title)} chars, expected exact match)")
+                manual_flags.append("forced_h1_from_extract")
+            title = machine_h1
+        focus = compact_focus_keyword(focus or topic.replace("-", " "))
+        if not meta:
+            meta = derive_meta_from_gdoc_first_paragraph(ghtml)[:160]
+        seo_title = title
+        cat_hint = "Check This Out"
+        if client_src:
+            hero_q = ""
+
+    if not cr:
+        seo_title = seo_title[: site["seo_title_max"]]
 
     print(f"[2] Title: {title}")
-    print(f"[3] Pexels search: {hero_q!r}")
-    hero_pick, pexels_used_query = resolve_hero_pexels_photo(site, title, topic, hero_q)
-    if pexels_used_query != hero_q:
-        print(f"[3b] Pexels fallback query succeeded: {pexels_used_query!r}")
-    p_name, p_profile, _p_page = photographer_meta(hero_pick)
-    fb = (plan.get("photographer_fallback_name") or "").strip()
-    if fb:
-        p_name = fb
+    used_client_hero = False
+    pexels_used_query = ""
 
-    hero_img, social_img = build_resized_pair(site, hero_pick)
+    if client_src:
+        print(f"[3] Client image from Doc — using as hero/social (CRITICAL_RULES); Pexels hero skipped")
+        pil = _pil_image_from_src(client_src)
+        prov_url, prov_label, prov_flags = attempt_image_provenance(pil)
+        manual_flags.extend(prov_flags)
+        hero_img, social_img = build_resized_pair_from_pil(site, pil)
+        p_name = prov_label
+        p_profile = prov_url or "https://www.pexels.com/"
+        cite = client_photo_citation_html(prov_url, prov_label)
+        cap = f"Photo: {prov_label}"
+        used_client_hero = True
+    else:
+        print(f"[3] Pexels search: {hero_q!r}")
+        hero_pick, pexels_used_query = resolve_hero_pexels_photo(site, title, topic, hero_q)
+        if pexels_used_query != hero_q:
+            print(f"[3b] Pexels fallback query succeeded: {pexels_used_query!r}")
+        p_name, p_profile, _p_page = photographer_meta(hero_pick)
+        fb = (plan.get("photographer_fallback_name") or "").strip()
+        if fb:
+            p_name = fb
+        hero_img, social_img = build_resized_pair(site, hero_pick)
+        cite = (
+            f'<p><em><a href="{p_profile}" target="_blank" rel="nofollow noopener">'
+            f"Photo: {p_name} via Pexels</a></em></p>"
+        )
+        cap = f"Photo: {p_name} via Pexels"
+
+    assert hero_img.size == (site["hero_w"], site["hero_h"]), hero_img.size
+    assert social_img.size == (site["social_w"], site["social_h"]), social_img.size
+
     prefix = site["prefix"]
     slug = topic
-    alt = f"{title} — banner image highlighting the story's subject matter."
+    alt = title if cr else f"{title} — banner image highlighting the story's subject matter."
 
     hero_fn = f"{prefix}-{slug}-hero.jpg"
     social_fn = f"{prefix}-{slug}-social.jpg"
-    cap = f"Photo: {p_name} via Pexels"
 
     print(f"[4] Uploading hero {hero_fn}…")
     hero_media = wp_upload_jpeg(
@@ -813,10 +1093,6 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     social_id = int(social_media["id"])
     social_url = social_media.get("source_url") or ""
 
-    cite = (
-        f'<p><em><a href="{p_profile}" target="_blank" rel="nofollow noopener">'
-        f"Photo: {p_name} via Pexels</a></em></p>"
-    )
     tail = cite + "\n<hr />\n" + donation_html_for(site)
     content = body.rstrip() + "\n\n" + tail
 
@@ -827,9 +1103,13 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         "excerpt": meta,
     }
 
-    cat_id = resolve_default_category(site, cat_hint)
+    if cr and site["key"] == "cd":
+        cat_id = resolve_check_this_out_category(site)
+    else:
+        cat_id = resolve_default_category(site, cat_hint)
+
     post_title = title
-    if len(post_title) > site["title_max"]:
+    if not cr and len(post_title) > site["title_max"]:
         post_title = post_title[: site["title_max"] - 1].rstrip() + "…"
         print(f"[6b] Post title trimmed to {site['title_max']} chars")
 
@@ -849,14 +1129,29 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     print(f"[8] Draft id={post_id} url={edit_url}")
 
     print(f"[9] Updating AIOSEO + cd-seo…")
-    push_aioseo_and_cdseo(site, post_id, seo, social_url)
+    push_aioseo_and_cdseo(
+        site,
+        post_id,
+        seo,
+        social_url,
+        seo_title_max=(500 if cr else None),
+    )
 
     sid = resolve_social_id(site["wp_url"], (site["wp_user"], site["wp_pass"]), post_id, hero_id)
     if not sid:
         sid = social_id
 
     print(f"[9b] Running verify_post…")
-    qa_ok = verify_post(site, post_id, seo, hero_id, sid, site["title_max"])
+    qa_ok = verify_post(
+        site,
+        post_id,
+        seo,
+        hero_id,
+        sid,
+        site["title_max"],
+        expect_exact_title=machine_h1 if cr and machine_h1 else None,
+        critical_rules=cr,
+    )
 
     print(f"[10] WhatsApp notification…")
     send_whatsapp(post_id, post_title, edit_url, site["site_label"])
@@ -872,6 +1167,9 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         "social_url": social_url,
         "intake_summary": intake.get("summary"),
         "intake_contract_flags": intake.get("contract_flags"),
+        "critical_rules_active": cr,
+        "used_client_hero": used_client_hero,
+        "manual_review_flags": manual_flags,
     }
 
 
