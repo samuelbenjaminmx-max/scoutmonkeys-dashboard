@@ -4897,6 +4897,17 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         body = cd_insert_spacers_between_adjacent_figures(body)
         body = format_to_audit_standard(body, site=site)
         body = cd_enrich_inline_image_alts_with_vision(body, title)
+        if client_src:
+            _ui_kw = ("game interface", "game screen", "mobile game ui", "video game screen", "game ui")
+            _bsoup_alt = BeautifulSoup(body, "html.parser")
+            _alt_removed = 0
+            for _img in list(_bsoup_alt.find_all("img")):
+                if any(_kw in (_img.get("alt") or "").lower() for _kw in _ui_kw):
+                    _img.decompose()
+                    _alt_removed += 1
+            if _alt_removed:
+                body = str(_bsoup_alt)
+                print(f"[2c] Hero strip (alt-text): removed {_alt_removed} body <img> identified as video-game-screen hero.")
         cd_sync_inline_attachment_alts_from_body(site, body)
         # Final guaranteed strip: catch any hero img that survived all earlier passes.
         if client_src:
