@@ -43,6 +43,21 @@ WA_PHONE = os.environ.get("WHATSAPP_PHONE", "+5215549571586")
 
 OUR_FRIENDS_AUTHOR_ID = int(os.environ.get("OUR_FRIENDS_AUTHOR_ID", "19"))
 
+
+def _refresh_runtime_env_from_os() -> None:
+    """Re-read env-backed module globals (needed after `_apply_repo_dotenv_for_cli()`)."""
+    global ANTHROPIC_KEY, ANTHROPIC_MODEL, PEXELS_KEY
+    global TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM, WA_TO, WA_PHONE
+    ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+    ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+    PEXELS_KEY = os.environ.get("PEXELS_API_KEY", "")
+    TWILIO_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
+    TWILIO_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
+    TWILIO_FROM = os.environ.get("TWILIO_WHATSAPP_FROM", "")
+    WA_TO = os.environ.get("WHATSAPP_TO")
+    WA_PHONE = os.environ.get("WHATSAPP_PHONE", "+5215549571586")
+
+
 # ---------------------------------------------------------------------------
 # Site configuration
 # ---------------------------------------------------------------------------
@@ -1034,7 +1049,7 @@ def verify_post(
 
 
 def _apply_repo_dotenv_for_cli() -> None:
-    """Load `REPO_ROOT/.env` into os.environ (used only by CLI remediate — not `run()`)."""
+    """Load `REPO_ROOT/.env` into os.environ (used by `run()`, remediate CLI, and local `python pipeline.py` runs)."""
     p = REPO_ROOT / ".env"
     if not p.is_file():
         return
@@ -1074,6 +1089,7 @@ def remediate_latest_cd_draft() -> dict:
     if not critical_rules_active():
         raise RuntimeError("CRITICAL_RULES.md is missing.")
     _apply_repo_dotenv_for_cli()
+    _refresh_runtime_env_from_os()
     _refresh_sites()
     site = SITES["cd"]
     if not site.get("wp_pass"):
@@ -1230,7 +1246,14 @@ def remediate_latest_cd_draft() -> dict:
     return {"post_id": post_id, "hero_id": hero_id, "social_id": int(sid), "actions": actions, "qa_ok": qa}
 
 
-def send_whatsapp(post_id: int, title: str, edit_url: str, site_label: str) -> None:
+def send_whatsapp(
+    post_id: int,
+    title: str,
+    edit_url: str,
+    site_label: str,
+    *,
+    qa_ok: Optional[bool] = None,
+) -> None:
     if not TWILIO_SID or not TWILIO_TOKEN or not TWILIO_FROM:
         print("[10] ⚠ WhatsApp skipped — TWILIO creds not set")
         return
@@ -1238,11 +1261,17 @@ def send_whatsapp(post_id: int, title: str, edit_url: str, site_label: str) -> N
         print("[10] ⚠ WhatsApp skipped — Twilio env vars are still Railway placeholders")
         return
     to = WA_TO or f"whatsapp:{WA_PHONE}"
+    qa_line = ""
+    if qa_ok is True:
+        qa_line = "\nQA: all checks passed."
+    elif qa_ok is False:
+        qa_line = "\nQA: some checks failed — open the draft in WordPress."
     msg = (
         f"✅ Draft saved — {site_label}\n"
         f"\"{title}\"\n"
         f"ID: {post_id}\n"
         f"Edit: {edit_url}"
+        f"{qa_line}"
     )
     print(f"[10] Sending WhatsApp to {to}…")
     r = requests.post(
@@ -1263,6 +1292,8 @@ def send_whatsapp(post_id: int, title: str, edit_url: str, site_label: str) -> N
 
 
 def run(gdoc_url: str, site_key: str = "cd") -> dict:
+    _apply_repo_dotenv_for_cli()
+    _refresh_runtime_env_from_os()
     _refresh_sites()
     site_key = site_key.lower().strip()
     if site_key not in SITES:
@@ -1452,7 +1483,7 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     )
 
     print(f"[10] WhatsApp notification…")
-    send_whatsapp(post_id, post_title, edit_url, site["site_label"])
+    send_whatsapp(post_id, post_title, edit_url, site["site_label"], qa_ok=qa_ok)
 
     return {
         "post_id": post_id,
