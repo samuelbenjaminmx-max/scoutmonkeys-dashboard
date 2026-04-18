@@ -951,6 +951,39 @@ def _plain_for_doc_fidelity_compare(html: str) -> str:
     return re.sub(r"\s+", " ", t).strip().lower()
 
 
+def _cd_anchor_should_wrap_strong(a) -> bool:
+    parent = getattr(a, "parent", None)
+    if bool(a.find("strong") or a.find("b")):
+        return False
+    if parent is not None and getattr(parent, "name", "") in ("strong", "b"):
+        return False
+    return True
+
+
+def _cd_wrap_anchor_contents_in_strong(soup: BeautifulSoup, a) -> bool:
+    """
+    Wrap ``a``'s inner markup in ``<strong>`` when required for CD sponsored link QA.
+    Handles Google Docs exports where anchor text lives only in nested ``span``s or ``&nbsp;`` padding.
+    """
+    if not _cd_anchor_should_wrap_strong(a):
+        return False
+    inner = a.decode_contents()
+    # Do not use ``inner.strip()`` — Google Docs uses NBSP-only anchors; str.strip removes ``\xa0``.
+    if inner is None or inner == "":
+        return False
+    a.clear()
+    strong = soup.new_tag("strong")
+    frag = BeautifulSoup(inner, "html.parser")
+    container = frag.body if frag.body else frag
+    for child in list(container.children):
+        if hasattr(child, "extract"):
+            strong.append(child.extract())
+        else:
+            strong.append(child)
+    a.append(strong)
+    return True
+
+
 def claude_body_fails_doc_fidelity(doc_body_html: str, claude_article_body_html: str) -> Tuple[bool, str]:
     """
     Return (True, reason) if Claude's ``article_body_html`` is not faithful to the Doc export
@@ -1008,24 +1041,8 @@ def canonicalize_body_http_links_cd(site: dict, body_html: str) -> str:
         if (a.get("target") or "").lower() != "_blank":
             a["target"] = "_blank"
             changed = True
-        parent = getattr(a, "parent", None)
-        already_bold = bool(a.find("strong") or a.find("b")) or (
-            parent is not None and getattr(parent, "name", "") in ("strong", "b")
-        )
-        if not already_bold:
-            inner = a.decode_contents()
-            if inner.strip():
-                a.clear()
-                strong = soup.new_tag("strong")
-                frag = BeautifulSoup(inner, "html.parser")
-                container = frag.body if frag.body else frag
-                for child in list(container.children):
-                    if hasattr(child, "extract"):
-                        strong.append(child.extract())
-                    else:
-                        strong.append(child)
-                a.append(strong)
-                changed = True
+        if _cd_wrap_anchor_contents_in_strong(soup, a):
+            changed = True
     return str(soup) if changed else body_html
 
 
@@ -1073,24 +1090,8 @@ def normalize_cd_body_support_links_for_dofollow(site: dict, body_html: str) -> 
         if (a.get("target") or "").lower() != "_blank":
             a["target"] = "_blank"
             changed = True
-        parent = getattr(a, "parent", None)
-        already_bold = bool(a.find("strong") or a.find("b")) or (
-            parent is not None and getattr(parent, "name", "") in ("strong", "b")
-        )
-        if not already_bold:
-            inner = a.decode_contents()
-            if inner.strip():
-                a.clear()
-                strong = soup.new_tag("strong")
-                frag = BeautifulSoup(inner, "html.parser")
-                container = frag.body if frag.body else frag
-                for child in list(container.children):
-                    if hasattr(child, "extract"):
-                        strong.append(child.extract())
-                    else:
-                        strong.append(child)
-                a.append(strong)
-                changed = True
+        if _cd_wrap_anchor_contents_in_strong(soup, a):
+            changed = True
     return str(soup) if changed else body_html
 
 
