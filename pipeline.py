@@ -646,6 +646,49 @@ def normalize_cd_body_vertical_spacing(html: str) -> str:
     return s
 
 
+def _strip_audit_style_number_prefix_from_h2(text: str) -> str:
+    """
+    Audit-dominant heading style on Cultural Daily is non-numbered H2.
+    Treat a leading ordinal marker as formatting (not content), e.g.:
+    ``1. Gut Health`` -> ``Gut Health``.
+    """
+    t = unicodedata.normalize("NFKC", text or "")
+    return re.sub(r"^\s*\d+\s*[\.\)\-:]\s+", "", t).strip()
+
+
+def apply_audit_formatting_patterns(html: str, *, site: dict) -> str:
+    """
+    Normalize HTML structure to match audit-dominant Cultural Daily patterns
+    without changing article wording/facts/links.
+
+    Current audit-aligned rules:
+    - H2 headings are usually non-numbered -> strip leading ``1.``/``2)`` style markers.
+    - Serialized spacing uses at most one blank line between block elements.
+    """
+    if not (html or "").strip():
+        return html
+    if site.get("key") != "cd":
+        return html
+    soup = BeautifulSoup(html, "html.parser")
+    for h2 in soup.find_all("h2"):
+        tx = h2.get_text(" ", strip=True)
+        if not tx:
+            continue
+        stripped = _strip_audit_style_number_prefix_from_h2(tx)
+        if stripped == tx:
+            continue
+        # Preserve existing inline wrappers/classes by replacing only the first text run.
+        # If text extraction from wrappers is complex, fallback to plain text to avoid
+        # touching links or non-text children outside heading content.
+        if h2.string is not None:
+            h2.string.replace_with(stripped)
+        else:
+            # Remove children and set normalized heading text only.
+            h2.clear()
+            h2.append(stripped)
+    return normalize_cd_body_vertical_spacing(str(soup))
+
+
 def _p_contains_only_img(par: Any) -> bool:
     if par is None or getattr(par, "name", "") != "p":
         return False
@@ -1848,7 +1891,7 @@ def remediate_latest_cd_draft() -> dict:
         hero_src_to_skip=hero_url,
     )
     pre2 = cd_format_body_inline_images(pre2, post_title=raw_title)
-    pre2 = normalize_cd_body_vertical_spacing(pre2)
+    pre2 = apply_audit_formatting_patterns(pre2, site=site)
     new_content = pre2.rstrip() + (("\n\n" + tail_suffix) if tail_suffix else "")
     if new_content != raw_content:
         rub = requests.post(
@@ -2128,7 +2171,7 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
             hero_src_to_skip=(client_src or "").strip(),
         )
         body = cd_format_body_inline_images(body, post_title=title)
-        body = normalize_cd_body_vertical_spacing(body)
+        body = apply_audit_formatting_patterns(body, site=site)
     if cr and site["key"] == "cd":
         focus = refine_focus_keyword_for_content(
             focus, body=body, doc_html=ghtml, title=title, topic_slug=topic
