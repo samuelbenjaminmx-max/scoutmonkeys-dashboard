@@ -17,6 +17,7 @@ import json
 import os
 import re
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 from urllib.parse import urlparse
@@ -83,15 +84,24 @@ def fetch_our_friends_posts(wp_url: str, author_id: int, auth: tuple[str, str]) 
 
 
 def fetch_media(wp_url: str, mid: int, auth: tuple[str, str]) -> dict:
-    r = requests.get(
-        f"{wp_url}/wp-json/wp/v2/media/{mid}",
-        auth=auth,
-        params={"context": "edit"},
-        timeout=30,
-    )
-    if r.status_code != 200:
-        return {"error": r.status_code, "body": r.text[:200]}
-    return r.json()
+    """Long scans hit transient timeouts; retry with backoff before failing."""
+    url = f"{wp_url}/wp-json/wp/v2/media/{mid}"
+    last_err: Exception | None = None
+    for attempt in range(5):
+        try:
+            r = requests.get(
+                url,
+                auth=auth,
+                params={"context": "edit"},
+                timeout=90,
+            )
+            if r.status_code != 200:
+                return {"error": r.status_code, "body": r.text[:200]}
+            return r.json()
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            last_err = e
+            time.sleep(min(30.0, 2.0 * (attempt + 1)))
+    return {"error": "timeout", "body": repr(last_err)[:200] if last_err else ""}
 
 
 def classify_hero(width: int, height: int) -> str:

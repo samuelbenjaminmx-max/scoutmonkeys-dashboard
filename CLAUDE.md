@@ -82,7 +82,7 @@ AUDIT_JSON_OUT=data/our_friends_audit.json python3 scripts/audit_our_friends_pos
 python3 scripts/build_cultural_daily_sponsored_rules.py data/our_friends_audit.json cultural_daily_sponsored_rules.md
 ```
 
-`data/our_friends_audit.json` is usually gitignored (large, credential-derived) but may exist locally after an audit run. It is the **empirical ground truth** for **CRITICAL_RULES.md §12 (audit conformity)**: the pipeline and Claude must not emit HTML or content structures that are not evidenced in that corpus. The generated **`cultural_daily_sponsored_rules.md`** is safe to commit: it embeds aggregate counts and the normative rules summary.
+**`data/our_friends_audit.json`** is **committed to this repository** (large file; regenerate with credentials locally when refreshing). It is the **empirical ground truth** for **CRITICAL_RULES.md §12 (audit conformity)**: the pipeline and Claude must not emit HTML or content structures that are not evidenced in that corpus. The generated **`cultural_daily_sponsored_rules.md`** is safe to commit: it embeds aggregate counts and the normative rules summary.
 
 Optional: `AUDIT_MAX_POSTS=500` for a faster sample run.
 

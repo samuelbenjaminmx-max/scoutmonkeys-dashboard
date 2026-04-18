@@ -1,6 +1,6 @@
 # Cultural Daily — Canonical Sponsored Content Rules Engine
 
-_Generated: 2026-04-17 22:57 UTC from `data/our_friends_audit.json` (Our Friends corpus audit)._
+_Generated: 2026-04-18 13:00 UTC from `data/our_friends_audit.json` (Our Friends corpus audit)._
 
 This document is the **normative rules engine** for Cultural Daily **sponsored / advertorial** HTML produced by the Scoutmonkeys pipeline. Historical “Our Friends” posts are **empirical reference only**; inconsistencies are summarized from live data below and must not override `CLAUDE.md` / `QA.md`.
 
