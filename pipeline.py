@@ -1435,7 +1435,8 @@ def cd_format_body_inline_images(html: str, *, post_title: str = "", site: dict)
     ]
     for slot, img in enumerate(imgs, start=1):
         alt0 = (img.get("alt") or img.get("title") or "").strip()
-        img["alt"] = _cd_inline_alt_for_img(alt0, post_title, slot=slot)
+        src_u = (img.get("src") or "").strip()
+        img["alt"] = _cd_inline_alt_for_img(alt0, post_title, slot=slot, src_url=src_u)
         img["title"] = cd_insert_media_title(site, slot)
         cap_txt = ""
         nxt = img.find_next("p")
@@ -2316,17 +2317,30 @@ def cd_reupload_inline_body_images(
     soup = BeautifulSoup(body_html, "html.parser")
     changed = False
     slot = 0
+    seen_fp: set[str] = set()
+    dup_removed = 0
     for img in soup.find_all("img"):
         src = (img.get("src") or "").strip()
         if not src.lower().startswith("http"):
             continue
         if hero_src_to_skip and _urls_loosely_same(src, hero_src_to_skip):
             continue
+        try:
+            pil = _pil_image_from_src(src).convert("RGB")
+        except Exception as e:
+            print(f"[warn] inline image decode skipped ({src[:90]}…): {e}")
+            continue
+        fp = hashlib.sha256(_cd_pil_fingerprint_bytes(pil)).hexdigest()
+        if fp in seen_fp:
+            _cd_remove_img_and_collapsing_empties(img)
+            changed = True
+            dup_removed += 1
+            continue
         slot += 1
         if _cd_insert_src_matches_slot_title(site, src, slot):
             title_m = cd_insert_media_title(site, slot)
             alt0 = (img.get("alt") or img.get("title") or "").strip()
-            new_alt = _cd_inline_alt_for_img(alt0, post_title, slot=slot)
+            new_alt = _cd_inline_alt_for_img(alt0, post_title, slot=slot, src_url=src)
             if (img.get("alt") or "") != new_alt:
                 img["alt"] = new_alt
                 changed = True
@@ -2349,6 +2363,7 @@ def cd_reupload_inline_body_images(
             if mid is not None:
                 _cd_merge_wp_image_class(img, mid)
                 changed = True
+            seen_fp.add(fp)
             continue
         cap_txt = ""
         nxt = img.find_next("p")
@@ -2357,12 +2372,7 @@ def cd_reupload_inline_body_images(
             nxt.decompose()
             changed = True
         alt0 = (img.get("alt") or img.get("title") or "").strip()
-        alt_f = _cd_inline_alt_for_img(alt0, post_title, slot=slot)
-        try:
-            pil = _pil_image_from_src(src).convert("RGB")
-        except Exception as e:
-            print(f"[warn] inline image upload skipped ({src[:90]}…): {e}")
-            continue
+        alt_f = _cd_inline_alt_for_img(alt0, post_title, slot=slot, src_url=src)
         title_m = cd_insert_media_title(site, slot)
         fn = f"{title_m}.jpg"
         try:
@@ -2379,6 +2389,12 @@ def cd_reupload_inline_body_images(
             if mid_up is not None:
                 _cd_merge_wp_image_class(img, int(mid_up))
             changed = True
+            seen_fp.add(fp)
+    if dup_removed:
+        print(
+            f"[2c] Inline images: removed {dup_removed} duplicate <img> node(s) "
+            f"(same pixels as an earlier body image — Google Doc paste / footnote duplication)."
+        )
     return str(soup) if changed else body_html
 
 
@@ -3207,6 +3223,7 @@ def remediate_latest_cd_draft() -> dict:
         pre_body = cd_relocate_lead_images_after_substantive_opening(
             pre_body, used_client_hero=True
         )
+        pre_body = cd_strip_body_images_visually_matching_client_hero(pre_body, hero_url)
     pre2 = normalize_cd_body_support_links_for_dofollow(site, pre_body)
     pre2 = cd_deduplicate_inline_body_images(pre2, hero_src_to_skip=hero_url)
     pre2 = cd_reupload_inline_body_images(
@@ -3592,6 +3609,7 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
             body = cd_relocate_lead_images_after_substantive_opening(
                 body, used_client_hero=True
             )
+            body = cd_strip_body_images_visually_matching_client_hero(body, client_src)
     body = canonicalize_body_http_links_cd(site, body)
     body = normalize_cd_body_support_links_for_dofollow(site, body)
     if site["key"] == "cd":
@@ -3622,7 +3640,10 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     if client_src:
         print(f"[3] Client image from Doc — using as hero/social (CRITICAL_RULES); Pexels hero skipped")
         pil = _pil_image_from_src(client_src)
-        prov_url, prov_label, prov_flags = attempt_image_provenance(pil)
+        hero_credit_url = cd_extract_client_hero_credit_page_url(ghtml)
+        prov_url, prov_label, prov_flags = attempt_image_provenance(
+            pil, credit_source_page_url=hero_credit_url
+        )
         manual_flags.extend(prov_flags)
         hero_img, social_img = build_resized_pair_from_pil(site, pil)
         p_name = prov_label
