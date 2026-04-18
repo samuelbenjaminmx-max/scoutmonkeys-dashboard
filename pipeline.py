@@ -7,6 +7,7 @@ Environment variables are documented in CLAUDE.md. Run:
 """
 from __future__ import annotations
 
+import html as html_module
 import io
 import json
 import math
@@ -857,6 +858,18 @@ def _cd_center_paragraph_parent_of_figure(fig) -> None:
         p["class"] = parts
 
 
+def _cd_merge_wp_image_class(img, media_id: int) -> None:
+    """WordPress ties attachments to ``<img class=\"wp-image-{id}\">`` so the editor shows alignment + alt."""
+    token = f"wp-image-{int(media_id)}"
+    cls = img.get("class") or []
+    if isinstance(cls, str):
+        cls = [c for c in cls.split() if c]
+    cls = [c for c in cls if not (isinstance(c, str) and c.startswith("wp-image-"))]
+    if token not in cls:
+        cls.append(token)
+    img["class"] = cls
+
+
 def _cd_apply_figure_center_styles(fig, img) -> None:
     cls = fig.get("class") or []
     if isinstance(cls, str):
@@ -874,6 +887,13 @@ def _cd_apply_figure_center_styles(fig, img) -> None:
         img.get("style"),
         "display:block;margin-left:auto;margin-right:auto;max-width:100%;height:auto",
     )
+    icls = img.get("class") or []
+    if isinstance(icls, str):
+        icls = [c for c in icls.split() if c]
+    for token in ("aligncenter", "size-full"):
+        if token not in icls:
+            icls.append(token)
+    img["class"] = icls
 
 
 def cd_format_body_inline_images(html: str, *, post_title: str = "") -> str:
@@ -899,7 +919,8 @@ def cd_format_body_inline_images(html: str, *, post_title: str = "") -> str:
             cap_txt = nxt.get_text(" ", strip=True)
             nxt.decompose()
         parent = img.parent
-        if parent and getattr(parent, "name", "") == "figure" and str(parent.get("align") or "").lower() == "center":
+        # Reuse any existing <figure> (with or without align=) — avoids nesting a second <figure>.
+        if parent and getattr(parent, "name", "") == "figure":
             fig = parent
         elif parent and _p_contains_only_img(parent):
             fig = soup.new_tag("figure", attrs={"align": "center"})
@@ -1228,6 +1249,67 @@ def wp_upload_jpeg(
     return r2.json()
 
 
+def cd_resolve_media_id_by_title(site: dict, title: str) -> Optional[int]:
+    """Find a media attachment whose title matches exactly (REST ``search`` + local filter)."""
+    wp, auth = wp_auth(site)
+    t = html_module.unescape((title or "").strip())
+    if not t:
+        return None
+    r = requests.get(
+        f"{wp}/wp-json/wp/v2/media",
+        auth=auth,
+        params={"search": t, "per_page": 50, "orderby": "date", "order": "desc"},
+        timeout=30,
+    )
+    r.raise_for_status()
+    want = t.lower()
+    for row in r.json():
+        tit = row.get("title") or {}
+        raw = (tit.get("raw") or tit.get("rendered") or "").strip()
+        raw = html_module.unescape(re.sub(r"<[^>]+>", "", raw))
+        if raw.lower() == want:
+            return int(row["id"])
+    return None
+
+
+def cd_sync_inline_attachment_alts_from_body(site: dict, body_html: str) -> None:
+    """
+    Copy ``<img alt=\"…\">`` onto WordPress attachment ``alt_text`` for each ``wp-image-{id}`` class.
+    Fixes the media modal showing empty Alternative Text when the post body already has alt.
+    """
+    if site.get("key") != "cd" or not (body_html or "").strip():
+        return
+    soup = BeautifulSoup(body_html, "html.parser")
+    wp, auth = wp_auth(site)
+    seen: set[int] = set()
+    for img in soup.find_all("img"):
+        cls = img.get("class") or []
+        if isinstance(cls, str):
+            cls = cls.split()
+        mid: Optional[int] = None
+        for c in cls:
+            if isinstance(c, str) and c.startswith("wp-image-"):
+                try:
+                    mid = int(c.replace("wp-image-", "", 1))
+                except ValueError:
+                    mid = None
+                break
+        if mid is None:
+            continue
+        alt = (img.get("alt") or "").strip()
+        if not alt or mid in seen:
+            continue
+        seen.add(mid)
+        r = requests.post(
+            f"{wp}/wp-json/wp/v2/media/{mid}",
+            auth=auth,
+            json={"alt_text": alt},
+            timeout=30,
+        )
+        if not r.ok:
+            print(f"[warn] media alt_text sync failed id={mid}: {r.status_code} {r.text[:160]}")
+
+
 def _basename_media_path(url: str) -> str:
     return (urlparse(url or "").path or "").rsplit("/", 1)[-1].lower()
 
@@ -1293,6 +1375,7 @@ def cd_reupload_inline_body_images(
             continue
         slot += 1
         if _cd_insert_src_matches_slot_title(site, src, slot):
+            title_m = cd_insert_media_title(site, slot)
             alt0 = (img.get("alt") or img.get("title") or "").strip()
             new_alt = _cd_inline_alt_for_img(alt0, post_title, slot=slot)
             if (img.get("alt") or "") != new_alt:
@@ -1300,6 +1383,22 @@ def cd_reupload_inline_body_images(
                 changed = True
             if "title" in img.attrs:
                 del img["title"]
+                changed = True
+            mid: Optional[int] = None
+            cls = img.get("class") or []
+            if isinstance(cls, str):
+                cls = cls.split()
+            for c in cls:
+                if isinstance(c, str) and c.startswith("wp-image-"):
+                    try:
+                        mid = int(c.replace("wp-image-", "", 1))
+                    except ValueError:
+                        mid = None
+                    break
+            if mid is None:
+                mid = cd_resolve_media_id_by_title(site, title_m)
+            if mid is not None:
+                _cd_merge_wp_image_class(img, mid)
                 changed = True
             continue
         cap_txt = ""
@@ -1328,6 +1427,9 @@ def cd_reupload_inline_body_images(
             img["alt"] = alt_f
             if "title" in img.attrs:
                 del img["title"]
+            mid_up = m.get("id")
+            if mid_up is not None:
+                _cd_merge_wp_image_class(img, int(mid_up))
             changed = True
     return str(soup) if changed else body_html
 
@@ -2089,6 +2191,7 @@ def remediate_latest_cd_draft() -> dict:
     )
     pre2 = cd_format_body_inline_images(pre2, post_title=raw_title)
     pre2 = format_to_audit_standard(pre2, site=site)
+    cd_sync_inline_attachment_alts_from_body(site, pre2)
     new_content = pre2.rstrip() + (("\n\n" + tail_suffix) if tail_suffix else "")
     if new_content != raw_content:
         rub = requests.post(
@@ -2376,6 +2479,7 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         )
         body = cd_format_body_inline_images(body, post_title=title)
         body = format_to_audit_standard(body, site=site)
+        cd_sync_inline_attachment_alts_from_body(site, body)
     if cr and site["key"] == "cd":
         focus = refine_focus_keyword_for_content(
             focus, body=body, doc_html=ghtml, title=title, topic_slug=topic
