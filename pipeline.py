@@ -663,15 +663,122 @@ def _cd_pils_visually_same(a: Image.Image, b: Image.Image) -> bool:
     return all(hi <= 14 for _lo, hi in ext)
 
 
-def cd_strip_body_images_visually_matching_client_hero(body_html: str, client_src: str) -> str:
+def _cd_pils_visually_same_loose(a: Image.Image, b: Image.Image, *, size: int = 128, max_diff: int = 26) -> bool:
+    """More tolerant same-photo check (different hosts / JPEG generations / mild crops)."""
+    try:
+        a0 = ImageOps.fit(a.convert("RGB"), (size, size), method=Image.Resampling.LANCZOS)
+        b0 = ImageOps.fit(b.convert("RGB"), (size, size), method=Image.Resampling.LANCZOS)
+        diff = ImageChops.difference(a0, b0)
+        return all(hi <= max_diff for _lo, hi in diff.getextrema())
+    except Exception:
+        return False
+
+
+def _cd_average_hash_int(pil: Image.Image, *, size: int = 12) -> int:
+    """DCT-free average hash (aHash) on grayscale ``size``×``size`` — stable across re-encode / CDN."""
+    g = ImageOps.fit(pil.convert("RGB").convert("L"), (size, size), method=Image.Resampling.LANCZOS)
+    px = list(g.getdata())
+    if not px:
+        return 0
+    avg = sum(px) / len(px)
+    h = 0
+    for i, v in enumerate(px):
+        if v >= avg:
+            h |= 1 << i
+    return h
+
+
+def _cd_hamming_bits(a: int, b: int) -> int:
+    n = 0
+    x = a ^ b
+    while x:
+        n += x & 1
+        x >>= 1
+    return n
+
+
+def _cd_pils_average_hash_similar(
+    a: Image.Image,
+    b: Image.Image,
+    *,
+    size: int = 12,
+    max_hamming: int = 34,
+) -> bool:
+    """Same scene, even when one side is ``data:`` Doc export and the other is a CDN ``https`` JPEG."""
+    try:
+        return _cd_hamming_bits(_cd_average_hash_int(a, size=size), _cd_average_hash_int(b, size=size)) <= max_hamming
+    except Exception:
+        return False
+
+
+def _cd_hero_reference_stack(hero_source_src: str, site: Optional[dict]) -> List[Image.Image]:
     """
-    Remove any body ``<img>`` whose pixels match the **client hero** (same file pasted under a
-    different ``src`` — e.g. ``data:…`` hero vs ``https://…`` duplicate in the Doc export).
+    Decode the hero source (Doc ``data:``/URL or WordPress ``source_url``) and, on CD, append the
+    **exact published hero crop** (e.g. 975×250) so body images can be matched to the same frame
+    even when the Doc body still shows the uncropped original.
     """
-    if not (body_html or "").strip() or not (client_src or "").strip():
+    pil = _pil_image_from_src(hero_source_src).convert("RGB")
+    out: List[Image.Image] = [pil]
+    if site and site.get("key") == "cd":
+        try:
+            hw = int(site["hero_w"])
+            hh = int(site["hero_h"])
+            out.append(_resize_cover_exact_floor(pil, hw, hh))
+        except Exception:
+            pass
+    return out
+
+
+def _cd_body_image_matches_hero_references(
+    body_pil: Image.Image,
+    hero_refs: List[Image.Image],
+    site: Optional[dict],
+) -> bool:
+    """True when ``body_pil`` is the same photograph as any hero reference (full and/or CD banner)."""
+    if not hero_refs:
+        return False
+    for ref in hero_refs:
+        if _cd_pils_visually_same(ref, body_pil):
+            return True
+        if _cd_pils_visually_same_loose(ref, body_pil):
+            return True
+        # GDoc footnotes often swap a ``data:`` hero for a different ``https`` file of the same scene.
+        if _cd_pils_average_hash_similar(ref, body_pil, size=12, max_hamming=36):
+            return True
+        if _cd_pils_visually_same_loose(ref, body_pil, size=64, max_diff=40):
+            return True
+    if site and site.get("key") == "cd" and len(hero_refs) >= 2:
+        try:
+            hw = int(site["hero_w"])
+            hh = int(site["hero_h"])
+            banner = hero_refs[1]
+            body_as_banner = _resize_cover_exact_floor(body_pil, hw, hh)
+            if _cd_pils_visually_same(banner, body_as_banner):
+                return True
+            if _cd_pils_visually_same_loose(banner, body_as_banner, size=96, max_diff=28):
+                return True
+            if _cd_pils_average_hash_similar(banner, body_as_banner, size=12, max_hamming=32):
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def cd_strip_body_images_visually_matching_client_hero(
+    body_html: str,
+    hero_source_src: str,
+    *,
+    site: Optional[dict] = None,
+) -> str:
+    """
+    Remove any body ``<img>`` that is the **same photograph** as the designated hero (featured image
+    source): same URL, strict pixel fingerprint, **or** the same frame after CD hero cover-crop /
+    looser normalized compare (handles Doc body showing full-size vs banner hero).
+    """
+    if not (body_html or "").strip() or not (hero_source_src or "").strip():
         return body_html
     try:
-        hero_pil = _pil_image_from_src(client_src).convert("RGB")
+        hero_refs = _cd_hero_reference_stack(hero_source_src, site)
     except Exception as e:
         print(f"[warn] client hero fingerprint skipped (cannot decode hero): {e}")
         return body_html
@@ -691,12 +798,12 @@ def cd_strip_body_images_visually_matching_client_hero(body_html: str, client_sr
             pil = _pil_image_from_src(src).convert("RGB")
         except Exception:
             continue
-        if _cd_pils_visually_same(hero_pil, pil):
+        if _cd_body_image_matches_hero_references(pil, hero_refs, site):
             _cd_remove_img_and_collapsing_empties(img)
             changed = True
     if changed:
         print(
-            "[2c] CD body: removed 1+ inline <img> row(s) that matched the client hero pixels "
+            "[2c] CD body: removed 1+ inline <img> row(s) that matched the designated hero photograph "
             "(hero is featured/social only — not duplicated in the article HTML)."
         )
     return str(soup) if changed else body_html
@@ -1121,18 +1228,27 @@ def _cd_remove_img_and_collapsing_empties(img) -> None:
         break
 
 
-def cd_deduplicate_inline_body_images(html: str, *, hero_src_to_skip: str = "") -> str:
+def cd_deduplicate_inline_body_images(
+    html: str, *, hero_src_to_skip: str = "", site: Optional[dict] = None
+) -> str:
     """
-    Remove duplicate inline images (same normalized URL as an earlier ``<img>``) and any
-    body copy of the featured hero URL. Typical Google Docs issue: the same photo pasted twice.
-    Also drops **identical** ``data:`` URIs (Google often exports pasted photos as data URIs).
-    First occurrence in document order is kept.
+    Remove **every** body ``<img>`` that is the same photograph as the featured hero (URL match or
+    visual/crop match — including ``data:`` hero vs ``https:`` duplicate in the export).
+
+    Also removes duplicate inline images (same normalized URL / identical ``data:`` hash as an
+    earlier ``<img>``). For **non-hero** duplicates, first occurrence in document order is kept.
     """
     if not (html or "").strip():
         return html
     soup = BeautifulSoup(html, "html.parser")
     hero_raw = (hero_src_to_skip or "").strip()
     hero_k = _url_key(hero_src_to_skip) if hero_raw and not hero_raw.lower().startswith("data:") else ""
+    hero_refs: List[Image.Image] = []
+    if hero_raw:
+        try:
+            hero_refs = _cd_hero_reference_stack(hero_raw, site)
+        except Exception:
+            hero_refs = []
     seen: set[str] = set()
     changed = False
     for img in list(soup.find_all("img")):
@@ -1140,6 +1256,21 @@ def cd_deduplicate_inline_body_images(html: str, *, hero_src_to_skip: str = "") 
         if not src:
             continue
         low = src.lower()
+        if src.startswith("blob:"):
+            continue
+        if not low.startswith(("http://", "https://", "data:")):
+            continue
+
+        pil: Optional[Image.Image] = None
+        try:
+            pil = _pil_image_from_src(src).convert("RGB")
+        except Exception:
+            pil = None
+        if pil is not None and hero_refs and _cd_body_image_matches_hero_references(pil, hero_refs, site):
+            _cd_remove_img_and_collapsing_empties(img)
+            changed = True
+            continue
+
         if low.startswith("data:"):
             if hero_raw and src == hero_raw:
                 _cd_remove_img_and_collapsing_empties(img)
@@ -1151,8 +1282,6 @@ def cd_deduplicate_inline_body_images(html: str, *, hero_src_to_skip: str = "") 
                 changed = True
                 continue
             seen.add(dk)
-            continue
-        if not low.startswith("http"):
             continue
         k = _url_key(src)
         if hero_k and k == hero_k:
@@ -1301,6 +1430,67 @@ _FOOTNOTE_DEF_ANCHOR_ID_RE = re.compile(r"^cmnt\d+$", re.I)
 _FOOTNOTE_DEF_ANCHOR_HREF_RE = re.compile(r"^#cmnt_ref\d+$", re.I)
 
 
+def _cd_is_gdoc_footnote_definition_anchor(el: Any) -> bool:
+    """``<a id=cmntN href=#cmnt_refN>`` at the end of the export — not inline ``#cmntN`` ref markers."""
+    if el is None or getattr(el, "name", "") != "a":
+        return False
+    aid = str(el.get("id") or "").strip()
+    href = str(el.get("href") or "").strip()
+    return bool(_FOOTNOTE_DEF_ANCHOR_ID_RE.match(aid) and _FOOTNOTE_DEF_ANCHOR_HREF_RE.match(href))
+
+
+def _cd_footnote_def_extract_image_url_for_definition_anchor(a: Any) -> str:
+    """
+    Return the ``https…`` image URL tied to a single footnote **definition** anchor.
+
+    Google often packs several ``[a] URL / [b] URL`` definitions into **one** ``<p>``. The old
+    fallback scanned ``par.find_all("span")`` and always took the **first** image URL in that
+    paragraph, so every marker could resolve to the same photograph — wrong bodies in WordPress.
+    """
+    sp = a.find_next_sibling()
+    if sp is not None and getattr(sp, "name", "") == "span":
+        raw_u = html_module.unescape(re.sub(r"\s+", "", (sp.get_text() or "").strip()))
+        if _cd_url_looks_like_inline_image(raw_u):
+            return raw_u
+    for sib in a.next_siblings:
+        if _cd_is_gdoc_footnote_definition_anchor(sib) and sib is not a:
+            break
+        if getattr(sib, "name", "") == "span":
+            raw_u = html_module.unescape(re.sub(r"\s+", "", (sib.get_text() or "").strip()))
+            if raw_u.startswith("http") and _cd_url_looks_like_inline_image(raw_u):
+                return raw_u
+    for el in a.find_all_next(limit=200):
+        if el is a:
+            continue
+        if getattr(el, "name", None) is None:
+            continue
+        if _cd_is_gdoc_footnote_definition_anchor(el) and el is not a:
+            break
+        if getattr(el, "name", "") == "span":
+            raw_u = html_module.unescape(re.sub(r"\s+", "", (el.get_text() or "").strip()))
+            if raw_u.startswith("http") and _cd_url_looks_like_inline_image(raw_u):
+                return raw_u
+    return ""
+
+
+def _cd_resolved_footnote_image_url_is_duplicate_hero(
+    url: str, hero_src: str, site: Optional[dict]
+) -> bool:
+    """True when a footnote-resolved image URL is the same file / same photograph as the client hero."""
+    hs = (hero_src or "").strip()
+    u = (url or "").strip()
+    if not hs or not u:
+        return False
+    if _urls_loosely_same(u, hs) or _url_key(u) == _url_key(hs):
+        return True
+    try:
+        hero_refs = _cd_hero_reference_stack(hs, site)
+        pil = _pil_image_from_src(u).convert("RGB")
+        return bool(_cd_body_image_matches_hero_references(pil, hero_refs, site))
+    except Exception:
+        return False
+
+
 def _cd_url_looks_like_inline_image(url: str) -> bool:
     u = (url or "").strip()
     if not u.startswith(("http://", "https://")):
@@ -1312,7 +1502,12 @@ def _cd_url_looks_like_inline_image(url: str) -> bool:
     return bool(re.search(r"\.(jpe?g|png|webp|gif)$", base, re.I))
 
 
-def cd_resolve_gdoc_footnote_images(html: str) -> str:
+def cd_resolve_gdoc_footnote_images(
+    html: str,
+    *,
+    hero_src: str = "",
+    site: Optional[dict] = None,
+) -> str:
     """
     Google Docs often stores image credits as **footnotes**: inline markers such as
     ``<sup><a href="#cmnt1" id="cmnt_ref1">[a]</a></sup>`` and definitions at the **end** of the
@@ -1322,6 +1517,10 @@ def cd_resolve_gdoc_footnote_images(html: str) -> str:
     This pass resolves each ``#cmntN`` marker to a real ``<img src="https…">`` (so
     :func:`cd_reupload_inline_body_images` can upload them) and **removes** the footnote definition
     paragraphs from the HTML.
+
+    When ``hero_src`` is set (client hero ``data:`` or URL), resolved URLs that duplicate the
+    featured photograph are **dropped** (marker removed, no ``<img>``) so footnotes cannot paste
+    the hero back into the body.
     """
     if not (html or "").strip():
         return html
@@ -1335,18 +1534,7 @@ def cd_resolve_gdoc_footnote_images(html: str) -> str:
             continue
         if not _FOOTNOTE_DEF_ANCHOR_HREF_RE.match(str(a.get("href") or "").strip()):
             continue
-        raw_u = ""
-        sp = a.find_next_sibling()
-        if sp is not None and getattr(sp, "name", "") == "span":
-            raw_u = html_module.unescape(re.sub(r"\s+", "", (sp.get_text() or "").strip()))
-        if not _cd_url_looks_like_inline_image(raw_u):
-            par = a.find_parent("p")
-            if par is not None:
-                for s in par.find_all("span"):
-                    cand = html_module.unescape(re.sub(r"\s+", "", (s.get_text() or "").strip()))
-                    if cand.startswith("http") and _cd_url_looks_like_inline_image(cand):
-                        raw_u = cand
-                        break
+        raw_u = _cd_footnote_def_extract_image_url_for_definition_anchor(a)
         if not _cd_url_looks_like_inline_image(raw_u):
             continue
         url_by_cmnt[aid.lower()] = raw_u
@@ -1357,7 +1545,9 @@ def cd_resolve_gdoc_footnote_images(html: str) -> str:
     for p in def_ps:
         p.decompose()
 
-    replaced = 0
+    inserted = 0
+    dropped_hero_dup = 0
+    hs = (hero_src or "").strip()
     for a in list(soup.find_all("a", href=True)):
         href = str(a.get("href") or "").strip()
         m = re.fullmatch(r"#(cmnt\d+)", href, flags=re.I)
@@ -1366,6 +1556,22 @@ def cd_resolve_gdoc_footnote_images(html: str) -> str:
         key = m.group(1).lower()
         url = url_by_cmnt.get(key)
         if not url:
+            continue
+        if hs and _cd_resolved_footnote_image_url_is_duplicate_hero(url, hs, site):
+            parent = a.parent
+            if parent is not None and getattr(parent, "name", "") == "sup":
+                strays = [
+                    x
+                    for x in parent.contents
+                    if isinstance(x, NavigableString) and str(x).strip()
+                ]
+                elems = [x for x in parent.children if getattr(x, "name", None)]
+                if not strays and len(elems) == 1 and elems[0] is a:
+                    parent.decompose()
+                    dropped_hero_dup += 1
+                    continue
+            a.decompose()
+            dropped_hero_dup += 1
             continue
         img = soup.new_tag("img", src=url, alt="")
         parent = a.parent
@@ -1378,10 +1584,10 @@ def cd_resolve_gdoc_footnote_images(html: str) -> str:
             elems = [x for x in parent.children if getattr(x, "name", None)]
             if not strays and len(elems) == 1 and elems[0] is a:
                 parent.replace_with(img)
-                replaced += 1
+                inserted += 1
                 continue
         a.replace_with(img)
-        replaced += 1
+        inserted += 1
 
     for a in list(soup.find_all("a", href=True)):
         href = str(a.get("href") or "").strip()
@@ -1400,10 +1606,11 @@ def cd_resolve_gdoc_footnote_images(html: str) -> str:
         if dv.find(True) is None and not (dv.get_text() or "").strip():
             dv.decompose()
 
-    if replaced:
+    if inserted or dropped_hero_dup:
+        extra = f", dropped {dropped_hero_dup} marker(s) that only duplicated the client hero" if dropped_hero_dup else ""
         print(
-            f"[2c] Google Doc footnotes: replaced {replaced} [a]/[b]/… marker(s) with <img> "
-            f"and removed {len(def_ps)} footnote URL block(s) from the body."
+            f"[2c] Google Doc footnotes: inserted <img> for {inserted} [a]/[b]/… marker(s){extra}, "
+            f"removed {len(def_ps)} footnote definition block(s) from the body."
         )
     return str(soup)
 
@@ -1449,12 +1656,39 @@ def _cd_first_substantial_body_paragraph(soup: BeautifulSoup, after_p) -> Any:
     return fallback[0] if fallback else None
 
 
-def cd_relocate_lead_images_after_substantive_opening(html: str, *, used_client_hero: bool) -> str:
+def _cd_relocate_lead_inline_images_enabled() -> bool:
+    """
+    Moving lead-only ``<img>`` rows out of the first short ``<p>`` was meant to mimic Our Friends
+    corpus layout, but it **reorders** Doc content and can leave the client hero (or bundled inline
+    art) appearing later in the body. **Off by default**; set ``CD_RELOCATE_LEAD_INLINE_IMAGES=1``
+    to restore the old behavior.
+    """
+    return (os.environ.get("CD_RELOCATE_LEAD_INLINE_IMAGES") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
+def cd_relocate_lead_images_after_substantive_opening(
+    html: str,
+    *,
+    used_client_hero: bool,
+    hero_src: str = "",
+    site: Optional[dict] = None,
+) -> str:
     """
     When the client hero was stripped from the body, GDoc footnote inserts often remain in the
     **first** ``<p>`` as bare ``<img>`` rows before the real opener — unlike published Our Friends
     HTML, which leads with prose. Move those lead-only images to **after** the first substantial
     paragraph.
+
+    **Never** relocate an image that still matches the designated **hero photograph** (e.g. an
+    ``https`` copy of a ``data:`` hero) — that would put the hero back into the article body.
+    Those are removed instead of moved.
+
+    **Disabled unless** ``CD_RELOCATE_LEAD_INLINE_IMAGES`` is set to ``1`` / ``true`` / ``yes``
+    (see :func:`_cd_relocate_lead_inline_images_enabled`) so Doc image order is preserved by default.
     """
     if not (html or "").strip() or not used_client_hero:
         return html
@@ -1466,7 +1700,7 @@ def cd_relocate_lead_images_after_substantive_opening(html: str, *, used_client_
     imgs = [
         im
         for im in p0.find_all("img")
-        if (im.get("src") or "").strip().lower().startswith("http")
+        if (im.get("src") or "").strip().lower().startswith(("http://", "https://", "data:"))
     ]
     if not imgs:
         return str(soup)
@@ -1476,9 +1710,27 @@ def cd_relocate_lead_images_after_substantive_opening(html: str, *, used_client_
     anchor = _cd_first_substantial_body_paragraph(soup, p0)
     if anchor is None:
         return str(soup)
+    hero_refs: List[Image.Image] = []
+    hs = (hero_src or "").strip()
+    if hs:
+        try:
+            hero_refs = _cd_hero_reference_stack(hs, site)
+        except Exception:
+            hero_refs = []
     prev = anchor
     n_moved = 0
+    n_stripped_heroish = 0
     for im in list(imgs):
+        src = (im.get("src") or "").strip()
+        if hero_refs:
+            try:
+                pil = _pil_image_from_src(src).convert("RGB")
+                if _cd_body_image_matches_hero_references(pil, hero_refs, site):
+                    _cd_remove_img_and_collapsing_empties(im)
+                    n_stripped_heroish += 1
+                    continue
+            except Exception:
+                pass
         np = soup.new_tag("p")
         np.append(im.extract())
         prev.insert_after(np)
@@ -1486,10 +1738,15 @@ def cd_relocate_lead_images_after_substantive_opening(html: str, *, used_client_
         n_moved += 1
     if not p0.get_text(strip=True) and not p0.find("img"):
         p0.decompose()
+    if n_stripped_heroish:
+        print(
+            f"[2c] CD audit align: removed {n_stripped_heroish} lead <img> node(s) that still matched "
+            "the hero photograph (would not relocate into body)."
+        )
     if n_moved:
         print(
             "[2c] CD audit align: moved lead-only inline <img> row(s) after first substantive paragraph "
-            "(client hero removed from body)."
+            "(non-hero lead images / footnote art only)."
         )
     return str(soup)
 
@@ -1642,6 +1899,38 @@ def _cd_merge_wp_image_class(img, media_id: int) -> None:
     img["class"] = cls
 
 
+def _cd_split_paragraphs_with_multiple_bare_imgs_into_figures(soup: BeautifulSoup) -> int:
+    """
+    Google Docs sometimes emit ``<p><img/><img/>…</p>`` (only images). :func:`cd_format_body_inline_images`
+    used to replace the whole ``<p>`` with a single ``<figure>`` on the **first** image, which
+    detaches siblings and corrupts order. Split each such paragraph into **one figure per image**
+    in document order.
+    """
+    n = 0
+    for p in list(soup.find_all("p")):
+        if not _p_contains_only_img(p):
+            continue
+        direct_imgs = [c for c in p.children if getattr(c, "name", "") == "img"]
+        if len(direct_imgs) <= 1:
+            continue
+        figs: List[Any] = []
+        for im in list(direct_imgs):
+            fig = soup.new_tag("figure", attrs={"align": "center"})
+            fig.append(im.extract())
+            _cd_apply_figure_center_styles(fig, im)
+            _cd_unwrap_span_wrappers_around_figure(fig)
+            _cd_center_paragraph_parent_of_figure(fig)
+            figs.append(fig)
+        head = figs[0]
+        p.replace_with(head)
+        prev = head
+        for fig in figs[1:]:
+            prev.insert_after(fig)
+            prev = fig
+        n += 1
+    return n
+
+
 def _cd_apply_figure_center_styles(fig, img) -> None:
     cls = fig.get("class") or []
     if isinstance(cls, str):
@@ -1676,6 +1965,12 @@ def cd_format_body_inline_images(html: str, *, post_title: str = "", site: dict)
     ``Photo:`` credit in a centered caption paragraph when present.
     """
     soup = BeautifulSoup(html, "html.parser")
+    split_n = _cd_split_paragraphs_with_multiple_bare_imgs_into_figures(soup)
+    if split_n:
+        print(
+            f"[2c] CD body: split {split_n} <p> block(s) that contained only multiple bare <img> "
+            "into separate <figure> blocks (preserves per-image order)."
+        )
     imgs = [
         img
         for img in list(soup.find_all("img"))
@@ -2350,6 +2645,24 @@ def resolve_cd_sponsored_category(
     return cto, "check-this-out"
 
 
+def _cd_measure_image_url_pixels(url: str) -> Optional[Tuple[int, int]]:
+    """Return (width, height) of the image at ``url`` or None on failure."""
+    u = (url or "").strip()
+    if not u.lower().startswith("http"):
+        return None
+    try:
+        r = requests.get(
+            u,
+            timeout=90,
+            headers={"User-Agent": "ScoutmonkeysPipeline/1.0 (social pixel verify)"},
+        )
+        r.raise_for_status()
+        pil = Image.open(io.BytesIO(r.content)).convert("RGB")
+        return int(pil.size[0]), int(pil.size[1])
+    except Exception:
+        return None
+
+
 def assert_cd_social_attachment_stored_dimensions(
     site: dict, media: dict, *, context: str
 ) -> None:
@@ -2360,28 +2673,38 @@ def assert_cd_social_attachment_stored_dimensions(
     sw = int(md.get("width") or 0)
     sh = int(md.get("height") or 0)
     ew, eh = int(site["social_w"]), int(site["social_h"])
-    if (sw, sh) != (ew, eh):
-        relax = (os.environ.get("CD_RELAX_SOCIAL_WP_PIXEL_ASSERT") or "").strip().lower() in (
-            "1",
-            "true",
-            "yes",
+    if (sw, sh) == (ew, eh):
+        return
+    src = (media.get("source_url") or "").strip()
+    measured = _cd_measure_image_url_pixels(src) if src else None
+    if measured == (ew, eh):
+        print(
+            f"[warn] Social REST media_details says {sw}×{sh} but ``source_url`` decodes as "
+            f"{ew}×{eh} ({context}) — accepting file pixels (metadata lag or plugin quirk)."
         )
-        if relax:
-            print(
-                f"[warn] WordPress stored social as {sw}×{sh}, expected {ew}×{eh} ({context}). "
-                "Continuing because CD_RELAX_SOCIAL_WP_PIXEL_ASSERT=1 — fix host scaling when you can."
-            )
-            return
-        raise RuntimeError(
-            f"CD social image must be stored as {ew}×{eh}px in WordPress (CRITICAL_RULES §11). "
-            f"After upload, REST reports {sw}×{sh} ({context}). "
-            "The file was uploaded at the correct size in the pipeline — if dimensions shrink here, "
-            "the site is applying \"big image\" downscaling or another image plugin/CDN rule. "
-            "CD defaults to **PNG** for the social file (`CD_SOCIAL_UPLOAD_FORMAT=png`) because many "
-            "hosts only downscale big **JPEG** uploads — try PNG first, or raise "
-            "`big_image_size_threshold` in wp-config. "
-            "Or set CD_RELAX_SOCIAL_WP_PIXEL_ASSERT=1 once to save a draft despite scaled pixels."
+        return
+    relax = (os.environ.get("CD_RELAX_SOCIAL_WP_PIXEL_ASSERT") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    if relax:
+        print(
+            f"[warn] WordPress stored social as {sw}×{sh}, expected {ew}×{eh} ({context}). "
+            "Continuing because CD_RELAX_SOCIAL_WP_PIXEL_ASSERT=1 — fix host scaling when you can."
         )
+        return
+    mu = (
+        "Install mu-plugin from this repo: ``wordpress-mu-plugins/cd-pipeline-preserve-social-upload.php`` "
+        "→ ``wp-content/mu-plugins/`` (stops core big-image downscale for pipeline social uploads). "
+        "Also disable \"resize on upload\" in Smush/ShortPixel/EWWW if they still shrink to ~1481px."
+    )
+    raise RuntimeError(
+        f"CD social image must be stored as {ew}×{eh}px in WordPress (CRITICAL_RULES §11). "
+        f"After upload, REST reports {sw}×{sh}"
+        + (f"; downloaded ``source_url`` is {measured[0]}×{measured[1]}" if measured else "")
+        + f" ({context}). {mu}"
+    )
 
 
 def resolve_check_this_out_category(site: dict) -> int:
@@ -2455,8 +2778,15 @@ def wp_upload_image(
     *,
     image_format: str = "JPEG",
     jpeg_quality: int = 92,
+    http_headers: Optional[dict] = None,
 ) -> dict:
-    """Upload raster to WordPress media library; ``image_format`` is ``JPEG`` or ``PNG``."""
+    """
+    Upload raster to WordPress media library; ``image_format`` is ``JPEG`` or ``PNG``.
+
+    When ``http_headers`` includes ``X-CD-Pipeline-Social: 1`` (CD social uploads), the optional
+    mu-plugin ``wordpress-mu-plugins/cd-pipeline-preserve-social-upload.php`` can disable
+    WordPress downscaling so ``media_details`` stays **1920×1400**.
+    """
     wp, auth = wp_auth(site)
     buf = io.BytesIO()
     fmt = (image_format or "JPEG").strip().upper()
@@ -2468,7 +2798,8 @@ def wp_upload_image(
         mime = "image/jpeg"
     buf.seek(0)
     files = {"file": (filename, buf, mime)}
-    r = requests.post(f"{wp}/wp-json/wp/v2/media", auth=auth, files=files, timeout=120)
+    hdr = dict(http_headers or {})
+    r = requests.post(f"{wp}/wp-json/wp/v2/media", auth=auth, files=files, headers=hdr, timeout=120)
     r.raise_for_status()
     media = r.json()
     mid = media["id"]
@@ -2485,6 +2816,19 @@ def wp_upload_image(
     )
     r2.raise_for_status()
     return r2.json()
+
+
+def cd_delete_wp_media_attachment(site: dict, media_id: int) -> None:
+    """Permanently delete a media item (used to drop a wrong-size social before JPEG retry)."""
+    wp, auth = wp_auth(site)
+    r = requests.delete(
+        f"{wp}/wp-json/wp/v2/media/{int(media_id)}",
+        auth=auth,
+        params={"force": "true"},
+        timeout=60,
+    )
+    if not r.ok:
+        print(f"[warn] DELETE media id={media_id} returned {r.status_code}: {r.text[:200]}")
 
 
 def wp_upload_jpeg(
@@ -2634,13 +2978,13 @@ def cd_reupload_inline_body_images(
     slot = 0
     seen_fp: set[str] = set()
     dup_removed = 0
-    hero_pil_cache: Optional[Image.Image] = None
+    hero_refs: List[Image.Image] = []
     hss = (hero_src_to_skip or "").strip()
     if hss:
         try:
-            hero_pil_cache = _pil_image_from_src(hss).convert("RGB")
+            hero_refs = _cd_hero_reference_stack(hss, site)
         except Exception:
-            hero_pil_cache = None
+            hero_refs = []
     cred = credit_by_src or {}
     wp_u, auth_u = wp_auth(site)
     _rights_cache: dict[str, tuple[str, str]] = {}
@@ -2688,7 +3032,7 @@ def cd_reupload_inline_body_images(
             print(f"[warn] inline image decode skipped ({src[:90]}…): {e}")
             continue
         fp = hashlib.sha256(_cd_pil_fingerprint_bytes(pil)).hexdigest()
-        if hero_pil_cache is not None and _cd_pils_visually_same(hero_pil_cache, pil):
+        if hero_refs and _cd_body_image_matches_hero_references(pil, hero_refs, site):
             _cd_remove_img_and_collapsing_empties(img)
             changed = True
             dup_removed += 1
@@ -3321,10 +3665,17 @@ def verify_post(
     sw = int((soc.get("media_details") or {}).get("width") or 0)
     sh = int((soc.get("media_details") or {}).get("height") or 0)
     if site.get("key") == "cd":
+        soc_ok = sw == site["social_w"] and sh == site["social_h"]
+        soc_note = f"{sw}×{sh}"
+        if not soc_ok:
+            m = _cd_measure_image_url_pixels((soc.get("source_url") or "").strip())
+            if m == (int(site["social_w"]), int(site["social_h"])):
+                soc_ok = True
+                soc_note = f"{sw}×{sh} REST, {m[0]}×{m[1]} file"
         chk(
             "Social attachment stored at 1920×1400 (CD; host must not downscale)",
-            sw == site["social_w"] and sh == site["social_h"],
-            f"{sw}×{sh}",
+            soc_ok,
+            soc_note,
         )
 
     ht = hero.get("title") or {}
@@ -3509,10 +3860,53 @@ def verify_post(
 
     passed = sum(1 for _, ok in checks if ok)
     total = len(checks)
+
+    # -----------------------------------------------------------------------
+    # Corpus gate — compare published draft HTML against Our Friends patterns
+    # -----------------------------------------------------------------------
+    corpus_high_violations: List[str] = []
+    if site.get("key") == "cd":
+        try:
+            from corpus_compare import (
+                score_published_draft,
+                format_violations,
+                load_audit_profile,
+                load_our_friends_summary,
+            )
+            ap = load_audit_profile()
+            ofs = load_our_friends_summary()
+            violations = score_published_draft(c, audit_profile=ap, our_friends_summary=ofs)
+            if violations:
+                print(f"\n  [corpus QA] {len(violations)} violation(s) vs Our Friends corpus:")
+                for v in violations:
+                    icon = "❌" if v.severity == "HIGH" else ("⚠️ " if v.severity == "MEDIUM" else "ℹ️ ")
+                    print(f"    {icon} [{v.severity}] {v.rule}: {v.message}")
+                    if v.severity == "HIGH":
+                        corpus_high_violations.append(v.rule)
+                        # Mirror HIGH violations into the standard checks list so they
+                        # appear in the FAILED summary and affect the overall pass count.
+                        chk(f"corpus:{v.rule} (Our Friends contract)", False, v.message[:120])
+            else:
+                print("  [corpus QA] ✅ Draft matches Our Friends corpus patterns.")
+        except Exception as exc:
+            print(f"  [corpus QA] ⚠ Skipped — {exc}")
+
+    block_on_corpus = (
+        os.environ.get("CD_BLOCK_ON_CORPUS_VIOLATIONS", "").strip().lower() in ("1", "true", "yes")
+    )
+
+    passed = sum(1 for _, ok in checks if ok)
+    total = len(checks)
     print(f"\n  {'='*45}")
     print(f"  QA: {passed}/{total} passed {'✅ ALL GOOD' if passed == total else '❌ FIX REQUIRED'}")
     if passed < total:
         print("  FAILED:", ", ".join(lb for lb, ok in checks if not ok))
+    if corpus_high_violations and not block_on_corpus:
+        print(
+            f"  NOTE: {len(corpus_high_violations)} corpus HIGH violation(s) detected "
+            "but CD_BLOCK_ON_CORPUS_VIOLATIONS is not set — draft saved anyway. "
+            "Set CD_BLOCK_ON_CORPUS_VIOLATIONS=1 to make these failures block publishing."
+        )
     print(f"  {'='*45}\n")
     return passed == total
 
@@ -3539,6 +3933,43 @@ def _apply_repo_dotenv_for_cli() -> None:
         if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
             v = v[1:-1]
         if k not in os.environ:
+            os.environ[k] = v
+
+
+_TWILIO_DOTENV_KEYS = frozenset(
+    (
+        "TWILIO_ACCOUNT_SID",
+        "TWILIO_AUTH_TOKEN",
+        "TWILIO_WHATSAPP_FROM",
+        "WHATSAPP_TO",
+        "WHATSAPP_PHONE",
+    )
+)
+
+
+def _merge_repo_dotenv_twilio_whatsapp_overrides() -> None:
+    """Overwrite Twilio/WhatsApp keys from ``REPO_ROOT/.env`` when present.
+
+    ``_apply_repo_dotenv_for_cli`` does not override existing environment variables, but some
+    shells export placeholder ``TWILIO_*`` strings; those would block WhatsApp. Local ``.env``
+    should win for these keys when the file defines them.
+    """
+    p = REPO_ROOT / ".env"
+    if not p.is_file():
+        return
+    for raw in p.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        k, v = k.strip(), v.strip()
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+            v = v[1:-1]
+        if k in _TWILIO_DOTENV_KEYS and v:
             os.environ[k] = v
 
 
@@ -3903,15 +4334,17 @@ def remediate_latest_cd_draft() -> dict:
         pre_body = raw_content
         tail_suffix = ""
     pre_body = normalize_cd_body_vertical_spacing(pre_body)
-    pre_body = cd_resolve_gdoc_footnote_images(pre_body)
+    pre_body = cd_resolve_gdoc_footnote_images(pre_body, hero_src=hero_url, site=site)
     pre_body = cd_strip_residual_footnote_url_paragraphs(pre_body)
     if not used_pex:
-        pre_body = cd_relocate_lead_images_after_substantive_opening(
-            pre_body, used_client_hero=True
-        )
-        pre_body = cd_strip_body_images_visually_matching_client_hero(pre_body, hero_url)
+        pre_body = cd_strip_body_images_visually_matching_client_hero(pre_body, hero_url, site=site)
+        if _cd_relocate_lead_inline_images_enabled():
+            pre_body = cd_relocate_lead_images_after_substantive_opening(
+                pre_body, used_client_hero=True, hero_src=hero_url, site=site
+            )
+        pre_body = cd_strip_body_images_visually_matching_client_hero(pre_body, hero_url, site=site)
     pre2 = normalize_cd_body_support_links_for_dofollow(site, pre_body)
-    pre2 = cd_deduplicate_inline_body_images(pre2, hero_src_to_skip=hero_url)
+    pre2 = cd_deduplicate_inline_body_images(pre2, hero_src_to_skip=hero_url, site=site)
     pre2 = cd_reupload_inline_body_images(
         site,
         pre2,
@@ -3920,7 +4353,7 @@ def remediate_latest_cd_draft() -> dict:
         hero_src_to_skip=hero_url,
     )
     if not used_pex:
-        pre2 = cd_strip_body_images_visually_matching_client_hero(pre2, hero_url)
+        pre2 = cd_strip_body_images_visually_matching_client_hero(pre2, hero_url, site=site)
     pre2 = cd_promote_gdoc_heading_paragraphs(pre2)
     pre2 = cd_format_body_inline_images(pre2, post_title=raw_title, site=site)
     pre2 = cd_insert_spacers_between_adjacent_figures(pre2)
@@ -4004,28 +4437,47 @@ def remediate_latest_cd_draft() -> dict:
             cap = f"Photo: {cap}" if "pexels" in cap.lower() else ""
         prefix = site["prefix"]
         use_png_social = cd_social_upload_should_use_png(site)
-        social_fn = f"{prefix}-{slug}-social.png" if use_png_social else f"{prefix}-{slug}-social.jpg"
-        sm = wp_upload_image(
-            site,
-            social_img,
-            social_fn,
-            f"{prefix}-{slug}-social",
-            alt,
-            cap,
-            image_format="PNG" if use_png_social else "JPEG",
-            jpeg_quality=96,
-        )
-        sid = int(sm["id"])
-        r_sv = requests.get(
-            f"{wp}/wp-json/wp/v2/media/{sid}?context=edit",
-            auth=auth,
-            timeout=30,
-        )
-        r_sv.raise_for_status()
-        sm = r_sv.json()
-        assert_cd_social_attachment_stored_dimensions(
-            site, sm, context="remediate social reupload"
-        )
+        if sid:
+            cd_delete_wp_media_attachment(site, int(sid))
+        social_hdr = {"X-CD-Pipeline-Social": "1"}
+        attempts = [True, False] if use_png_social else [False]
+        sm: dict = {}
+        for att_i, try_png in enumerate(attempts):
+            if att_i > 0:
+                print(
+                    "[warn] Remediate: social PNG not kept at 1920×1400 — deleting attachment, retry JPEG."
+                )
+                cd_delete_wp_media_attachment(site, int(sid))
+            social_fn = f"{prefix}-{slug}-social.png" if try_png else f"{prefix}-{slug}-social.jpg"
+            sm = wp_upload_image(
+                site,
+                social_img,
+                social_fn,
+                f"{prefix}-{slug}-social",
+                alt,
+                cap,
+                image_format="PNG" if try_png else "JPEG",
+                jpeg_quality=96,
+                http_headers=social_hdr,
+            )
+            sid = int(sm["id"])
+            time.sleep(0.6)
+            r_sv = requests.get(
+                f"{wp}/wp-json/wp/v2/media/{sid}?context=edit",
+                auth=auth,
+                timeout=30,
+            )
+            r_sv.raise_for_status()
+            sm = r_sv.json()
+            try:
+                assert_cd_social_attachment_stored_dimensions(
+                    site, sm, context="remediate social reupload"
+                )
+            except RuntimeError:
+                if att_i >= len(attempts) - 1:
+                    raise
+                continue
+            break
         social_url = (sm.get("source_url") or "").strip()
         actions.append(f"reuploaded social media id={sid} {site['social_w']}×{site['social_h']}")
     else:
@@ -4149,6 +4601,10 @@ def send_whatsapp(
     qa_ok: Optional[bool] = None,
     extra_line: str = "",
 ) -> None:
+    # Re-load `.env` so CLI runs pick up real Twilio values (module-level globals are set at import).
+    _apply_repo_dotenv_for_cli()
+    _merge_repo_dotenv_twilio_whatsapp_overrides()
+    _refresh_runtime_env_from_os()
     if not TWILIO_SID or not TWILIO_TOKEN or not TWILIO_FROM:
         print("[10] ⚠ WhatsApp skipped — TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_WHATSAPP_FROM not all set")
         return
@@ -4318,18 +4774,33 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     if site["key"] == "cd" and cr and machine_h1:
         body = strip_duplicate_lead_title_from_body_html(body, machine_h1)
     if site["key"] == "cd":
-        body = cd_resolve_gdoc_footnote_images(body)
+        body = cd_resolve_gdoc_footnote_images(
+            body,
+            hero_src=(client_src or "").strip(),
+            site=site,
+        )
         body = cd_strip_residual_footnote_url_paragraphs(body)
         if client_src:
-            body = cd_relocate_lead_images_after_substantive_opening(
-                body, used_client_hero=True
+            # Footnote resolution often re-inserts the **same** lead photo as an ``https`` URL while
+            # the featured hero stays the original ``data:`` — strip again before relocate/move logic.
+            body = cd_strip_body_images_visually_matching_client_hero(
+                body, client_src, site=site
             )
-            body = cd_strip_body_images_visually_matching_client_hero(body, client_src)
+            if _cd_relocate_lead_inline_images_enabled():
+                body = cd_relocate_lead_images_after_substantive_opening(
+                    body,
+                    used_client_hero=True,
+                    hero_src=(client_src or "").strip(),
+                    site=site,
+                )
+            body = cd_strip_body_images_visually_matching_client_hero(
+                body, client_src, site=site
+            )
     body = canonicalize_body_http_links_cd(site, body)
     body = normalize_cd_body_support_links_for_dofollow(site, body)
     if site["key"] == "cd":
         body = cd_deduplicate_inline_body_images(
-            body, hero_src_to_skip=(client_src or "").strip()
+            body, hero_src_to_skip=(client_src or "").strip(), site=site
         )
         body = cd_reupload_inline_body_images(
             site,
@@ -4341,7 +4812,7 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         )
         if (client_src or "").strip():
             body = cd_strip_body_images_visually_matching_client_hero(
-                body, (client_src or "").strip()
+                body, (client_src or "").strip(), site=site
             )
         body = cd_promote_gdoc_heading_paragraphs(body)
         body = cd_format_body_inline_images(body, post_title=title, site=site)
@@ -4443,30 +4914,54 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     hero_id = int(hero_media["id"])
     hero_url = hero_media.get("source_url") or ""
 
-    print(f"[5] Uploading social {social_fn}…")
     wp_u, auth_u = wp_auth(site)
-    social_media = wp_upload_image(
-        site,
-        social_img,
-        social_fn,
-        f"{prefix}-{slug}-social",
-        alt,
-        cap,
-        image_format="PNG" if use_png_social else "JPEG",
-        jpeg_quality=96,
-    )
-    social_id = int(social_media["id"])
-    r_sv = requests.get(
-        f"{wp_u}/wp-json/wp/v2/media/{social_id}?context=edit",
-        auth=auth_u,
-        timeout=30,
-    )
-    r_sv.raise_for_status()
-    social_media = r_sv.json()
-    assert_cd_social_attachment_stored_dimensions(
-        site, social_media, context="pipeline social upload"
-    )
+    social_hdr = {"X-CD-Pipeline-Social": "1"}
+    # PNG first (default); if the host still stores ~1481px, delete and retry JPEG once.
+    social_attempts = [True, False] if use_png_social else [False]
+    social_media: dict = {}
+    social_id = 0
+    for att_i, try_png in enumerate(social_attempts):
+        if att_i > 0:
+            print(
+                "[warn] Social PNG was not kept at 1920×1400 on the server — "
+                "deleting that attachment and retrying as JPEG."
+            )
+            cd_delete_wp_media_attachment(site, social_id)
+        social_fn = f"{prefix}-{slug}-social.png" if try_png else f"{prefix}-{slug}-social.jpg"
+        print(f"[5] Uploading social {social_fn}…")
+        social_media = wp_upload_image(
+            site,
+            social_img,
+            social_fn,
+            f"{prefix}-{slug}-social",
+            alt,
+            cap,
+            image_format="PNG" if try_png else "JPEG",
+            jpeg_quality=96,
+            http_headers=social_hdr,
+        )
+        social_id = int(social_media["id"])
+        time.sleep(0.6)
+        r_sv = requests.get(
+            f"{wp_u}/wp-json/wp/v2/media/{social_id}?context=edit",
+            auth=auth_u,
+            timeout=30,
+        )
+        r_sv.raise_for_status()
+        social_media = r_sv.json()
+        try:
+            assert_cd_social_attachment_stored_dimensions(
+                site, social_media, context="pipeline social upload"
+            )
+        except RuntimeError:
+            if att_i >= len(social_attempts) - 1:
+                raise
+            continue
+        break
     social_url = social_media.get("source_url") or ""
+
+    if site["key"] == "cd" and (client_src or "").strip() and (hero_url or "").strip():
+        body = cd_strip_body_images_visually_matching_client_hero(body, hero_url, site=site)
 
     cite_html = (cite or "").strip()
     if cite_html:
