@@ -29,6 +29,7 @@ import doc_parser
 REPO_ROOT = Path(__file__).resolve().parent
 CRITICAL_RULES_PATH = REPO_ROOT / "CRITICAL_RULES.md"
 OUR_FRIENDS_AUDIT_JSON = REPO_ROOT / "data" / "our_friends_audit.json"
+AUDIT_FORMAT_PROFILE_JSON = REPO_ROOT / "data" / "audit_format_profile.json"
 
 # ---------------------------------------------------------------------------
 # Environment
@@ -690,37 +691,64 @@ def _strip_audit_style_number_prefix_from_h2(text: str) -> str:
     return re.sub(r"^\s*\d+\s*[\.\)\-:]\s+", "", t).strip()
 
 
-def apply_audit_formatting_patterns(html: str, *, site: dict) -> str:
+def load_audit_format_profile() -> dict:
     """
-    Normalize HTML structure to match audit-dominant Cultural Daily patterns
-    without changing article wording/facts/links.
+    Data-driven formatting thresholds built from the Our Friends corpus
+    (``scripts/build_audit_format_profile.py`` → ``data/audit_format_profile.json``).
+    Optional embed: ``our_friends_audit.json`` may include ``html_format_profile``.
+    """
+    if AUDIT_FORMAT_PROFILE_JSON.is_file():
+        try:
+            return json.loads(AUDIT_FORMAT_PROFILE_JSON.read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"[warn] Could not read {AUDIT_FORMAT_PROFILE_JSON}: {e}")
+    if OUR_FRIENDS_AUDIT_JSON.is_file():
+        try:
+            blob = json.loads(OUR_FRIENDS_AUDIT_JSON.read_text(encoding="utf-8"))
+            return blob.get("html_format_profile") or {}
+        except Exception as e:
+            print(f"[warn] Could not read embedded html_format_profile: {e}")
+    return {}
 
-    Current audit-aligned rules:
-    - H2 headings are usually non-numbered -> strip leading ``1.``/``2)`` style markers.
-    - Serialized spacing uses at most one blank line between block elements.
+
+def format_to_audit_standard(html: str, *, site: dict) -> str:
+    """
+    Transform body HTML **structure** to match dominant patterns observed in
+    ``data/audit_format_profile.json`` (derived from the same cohort as
+    ``our_friends_audit.json``). Does not change words, facts, or link URLs.
+
+    Uses ``thresholds`` from the profile when present; otherwise falls back to
+    conservative CD defaults (strip ordinal-prefixed H2s when the corpus
+    favors non-numbered headings; collapse extra newlines).
     """
     if not (html or "").strip():
         return html
     if site.get("key") != "cd":
         return html
+    prof = load_audit_format_profile()
+    th = (prof.get("thresholds") or {}) if isinstance(prof, dict) else {}
+    strip_ord = th.get("strip_h2_leading_ordinals", True)
+
     soup = BeautifulSoup(html, "html.parser")
-    for h2 in soup.find_all("h2"):
-        tx = h2.get_text(" ", strip=True)
-        if not tx:
-            continue
-        stripped = _strip_audit_style_number_prefix_from_h2(tx)
-        if stripped == tx:
-            continue
-        # Preserve existing inline wrappers/classes by replacing only the first text run.
-        # If text extraction from wrappers is complex, fallback to plain text to avoid
-        # touching links or non-text children outside heading content.
-        if h2.string is not None:
-            h2.string.replace_with(stripped)
-        else:
-            # Remove children and set normalized heading text only.
-            h2.clear()
-            h2.append(stripped)
+    if strip_ord:
+        for h2 in soup.find_all("h2"):
+            tx = h2.get_text(" ", strip=True)
+            if not tx:
+                continue
+            stripped = _strip_audit_style_number_prefix_from_h2(tx)
+            if stripped == tx:
+                continue
+            if h2.string is not None:
+                h2.string.replace_with(stripped)
+            else:
+                h2.clear()
+                h2.append(stripped)
     return normalize_cd_body_vertical_spacing(str(soup))
+
+
+def apply_audit_formatting_patterns(html: str, *, site: dict) -> str:
+    """Back-compat alias for :func:`format_to_audit_standard`."""
+    return format_to_audit_standard(html, site=site)
 
 
 def _p_contains_only_img(par: Any) -> bool:
@@ -1926,7 +1954,7 @@ def remediate_latest_cd_draft() -> dict:
         hero_src_to_skip=hero_url,
     )
     pre2 = cd_format_body_inline_images(pre2, post_title=raw_title)
-    pre2 = apply_audit_formatting_patterns(pre2, site=site)
+    pre2 = format_to_audit_standard(pre2, site=site)
     new_content = pre2.rstrip() + (("\n\n" + tail_suffix) if tail_suffix else "")
     if new_content != raw_content:
         rub = requests.post(
@@ -2208,7 +2236,7 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
             hero_src_to_skip=(client_src or "").strip(),
         )
         body = cd_format_body_inline_images(body, post_title=title)
-        body = apply_audit_formatting_patterns(body, site=site)
+        body = format_to_audit_standard(body, site=site)
     if cr and site["key"] == "cd":
         focus = refine_focus_keyword_for_content(
             focus, body=body, doc_html=ghtml, title=title, topic_slug=topic

@@ -1,0 +1,291 @@
+{
+  "source": "WordPress content.rendered for author=19 published posts (same cohort as our_friends_audit.json)",
+  "wp_url": "https://www.culturaldaily.com",
+  "author_id": 19,
+  "posts_fetched": 3208,
+  "posts_with_rendered_html": 3208,
+  "aggregate": {
+    "h2_total": 12319,
+    "h2_numbered_total": 1428,
+    "numbered_h2_fraction": 0.11592,
+    "ul_total": 3076,
+    "ol_total": 896,
+    "li_total": 12124,
+    "inter_tag_gap_single": 106477,
+    "inter_tag_gap_double": 0,
+    "inter_tag_gap_triple_plus": 0
+  },
+  "top_tag_counts": [
+    {
+      "tag": "p",
+      "count": 59795
+    },
+    {
+      "tag": "span",
+      "count": 54854
+    },
+    {
+      "tag": "h2",
+      "count": 12319
+    },
+    {
+      "tag": "li",
+      "count": 12124
+    },
+    {
+      "tag": "strong",
+      "count": 12025
+    },
+    {
+      "tag": "a",
+      "count": 11740
+    },
+    {
+      "tag": "h3",
+      "count": 6188
+    },
+    {
+      "tag": "b",
+      "count": 5557
+    },
+    {
+      "tag": "ul",
+      "count": 3076
+    },
+    {
+      "tag": "td",
+      "count": 2583
+    },
+    {
+      "tag": "em",
+      "count": 2312
+    },
+    {
+      "tag": "hr",
+      "count": 2281
+    },
+    {
+      "tag": "br",
+      "count": 2250
+    },
+    {
+      "tag": "h4",
+      "count": 1246
+    },
+    {
+      "tag": "ol",
+      "count": 896
+    },
+    {
+      "tag": "tr",
+      "count": 830
+    },
+    {
+      "tag": "img",
+      "count": 551
+    },
+    {
+      "tag": "i",
+      "count": 541
+    },
+    {
+      "tag": "picture",
+      "count": 535
+    },
+    {
+      "tag": "source",
+      "count": 535
+    },
+    {
+      "tag": "div",
+      "count": 435
+    },
+    {
+      "tag": "figure",
+      "count": 196
+    },
+    {
+      "tag": "figcaption",
+      "count": 195
+    },
+    {
+      "tag": "h5",
+      "count": 188
+    },
+    {
+      "tag": "table",
+      "count": 152
+    }
+  ],
+  "top_h2_structure_signatures": [
+    {
+      "signature": "h2>#text",
+      "count": 6990
+    },
+    {
+      "signature": "h2>span",
+      "count": 4823
+    },
+    {
+      "signature": "h2>b",
+      "count": 266
+    },
+    {
+      "signature": "h2>strong",
+      "count": 153
+    },
+    {
+      "signature": "h2>#text>span",
+      "count": 20
+    },
+    {
+      "signature": "h2>#text>picture",
+      "count": 12
+    },
+    {
+      "signature": "h2>span>span",
+      "count": 10
+    },
+    {
+      "signature": "h2>#text>b",
+      "count": 6
+    },
+    {
+      "signature": "h2>#text>i>#text",
+      "count": 6
+    },
+    {
+      "signature": "h2>strong>strong",
+      "count": 6
+    }
+  ],
+  "top_20_patterns": [
+    {
+      "rank": 1,
+      "pattern_key": "spacing:inter_tag_single_newline",
+      "count": 106477,
+      "description": "Serialized `>\\n<` gaps (aggregate): 106477"
+    },
+    {
+      "rank": 2,
+      "pattern_key": "tag:p",
+      "count": 59795,
+      "description": "Element <p> appears 59795 times across analyzed posts (aggregate)."
+    },
+    {
+      "rank": 3,
+      "pattern_key": "tag:span",
+      "count": 54854,
+      "description": "Element <span> appears 54854 times across analyzed posts (aggregate)."
+    },
+    {
+      "rank": 4,
+      "pattern_key": "tag:h2",
+      "count": 12319,
+      "description": "Element <h2> appears 12319 times across analyzed posts (aggregate)."
+    },
+    {
+      "rank": 5,
+      "pattern_key": "tag:li",
+      "count": 12124,
+      "description": "Element <li> appears 12124 times across analyzed posts (aggregate)."
+    },
+    {
+      "rank": 6,
+      "pattern_key": "tag:strong",
+      "count": 12025,
+      "description": "Element <strong> appears 12025 times across analyzed posts (aggregate)."
+    },
+    {
+      "rank": 7,
+      "pattern_key": "tag:a",
+      "count": 11740,
+      "description": "Element <a> appears 11740 times across analyzed posts (aggregate)."
+    },
+    {
+      "rank": 8,
+      "pattern_key": "links:anchor_inside_p",
+      "count": 11230,
+      "description": "Anchors nested under <p> (aggregate): 11230"
+    },
+    {
+      "rank": 9,
+      "pattern_key": "inline:strong_inside_p",
+      "count": 10125,
+      "description": "<strong> inside <p> (aggregate): 10125"
+    },
+    {
+      "rank": 10,
+      "pattern_key": "h2_structure:h2>#text",
+      "count": 6990,
+      "description": "H2 child structure \u201ch2>#text\u201d occurs 6990 times (skeleton, text ignored)."
+    },
+    {
+      "rank": 11,
+      "pattern_key": "tag:h3",
+      "count": 6188,
+      "description": "Element <h3> appears 6188 times across analyzed posts (aggregate)."
+    },
+    {
+      "rank": 12,
+      "pattern_key": "tag:b",
+      "count": 5557,
+      "description": "Element <b> appears 5557 times across analyzed posts (aggregate)."
+    },
+    {
+      "rank": 13,
+      "pattern_key": "h2_structure:h2>span",
+      "count": 4823,
+      "description": "H2 child structure \u201ch2>span\u201d occurs 4823 times (skeleton, text ignored)."
+    },
+    {
+      "rank": 14,
+      "pattern_key": "tag:ul",
+      "count": 3076,
+      "description": "Element <ul> appears 3076 times across analyzed posts (aggregate)."
+    },
+    {
+      "rank": 15,
+      "pattern_key": "tag:td",
+      "count": 2583,
+      "description": "Element <td> appears 2583 times across analyzed posts (aggregate)."
+    },
+    {
+      "rank": 16,
+      "pattern_key": "tag:em",
+      "count": 2312,
+      "description": "Element <em> appears 2312 times across analyzed posts (aggregate)."
+    },
+    {
+      "rank": 17,
+      "pattern_key": "tag:hr",
+      "count": 2281,
+      "description": "Element <hr> appears 2281 times across analyzed posts (aggregate)."
+    },
+    {
+      "rank": 18,
+      "pattern_key": "tag:br",
+      "count": 2250,
+      "description": "Element <br> appears 2250 times across analyzed posts (aggregate)."
+    },
+    {
+      "rank": 19,
+      "pattern_key": "tag:h4",
+      "count": 1246,
+      "description": "Element <h4> appears 1246 times across analyzed posts (aggregate)."
+    },
+    {
+      "rank": 20,
+      "pattern_key": "tag:ol",
+      "count": 896,
+      "description": "Element <ol> appears 896 times across analyzed posts (aggregate)."
+    }
+  ],
+  "thresholds": {
+    "strip_h2_leading_ordinals": true,
+    "numbered_h2_fraction_observed": 0.11592,
+    "collapse_runs_of_newlines_ge_3": true,
+    "max_serialized_newline_run": 2,
+    "lists_ul_share_observed": 0.77442
+  }
+}
