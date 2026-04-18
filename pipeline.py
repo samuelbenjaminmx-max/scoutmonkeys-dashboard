@@ -928,6 +928,8 @@ def _cd_infer_alt_from_image_url(src_url: str) -> str:
     """
     if not (src_url or "").strip():
         return ""
+    if (src_url or "").strip().lower().startswith("data:"):
+        return ""
     u = html_module.unescape((src_url or "").strip())
     try:
         path = (urlparse(u).path or "").lower()
@@ -1572,6 +1574,16 @@ def cd_resolve_gdoc_footnote_images(
                     continue
             a.decompose()
             dropped_hero_dup += 1
+            continue
+        # If the enclosing <p> already has an embedded data: image, the doc author has
+        # embedded the photograph directly — use that, don't inject a duplicate HTTP img.
+        p_block = a.find_parent("p")
+        if p_block and p_block.find("img", src=lambda s: (s or "").startswith("data:")):
+            sup_parent = a.parent
+            if sup_parent is not None and getattr(sup_parent, "name", "") == "sup":
+                sup_parent.decompose()
+            else:
+                a.decompose()
             continue
         img = soup.new_tag("img", src=url, alt="")
         parent = a.parent
@@ -2664,7 +2676,7 @@ def _cd_measure_image_url_pixels(url: str) -> Optional[Tuple[int, int]]:
 
 
 def assert_cd_social_attachment_stored_dimensions(
-    site: dict, media: dict, *, context: str
+    site: dict, media: dict, *, context: str, allow_host_downscale: bool = False
 ) -> None:
     """Fail fast if WordPress did not keep the social raster (PNG/JPEG) at CD pixel dimensions."""
     if site.get("key") != "cd":
@@ -2688,10 +2700,16 @@ def assert_cd_social_attachment_stored_dimensions(
         "true",
         "yes",
     )
-    if relax:
+    if relax or allow_host_downscale:
         print(
             f"[warn] WordPress stored social as {sw}×{sh}, expected {ew}×{eh} ({context}). "
-            "Continuing because CD_RELAX_SOCIAL_WP_PIXEL_ASSERT=1 — fix host scaling when you can."
+            + (
+                "Continuing after PNG+JPEG upload attempts — deploy "
+                "``wordpress-mu-plugins/cd-pipeline-preserve-social-upload.php`` to mu-plugins "
+                "and/or disable \"resize on upload\" in image plugins so OG can stay 1920×1400."
+                if allow_host_downscale
+                else "Continuing because CD_RELAX_SOCIAL_WP_PIXEL_ASSERT=1 — fix host scaling when you can."
+            )
         )
         return
     mu = (
@@ -4475,7 +4493,14 @@ def remediate_latest_cd_draft() -> dict:
                 )
             except RuntimeError:
                 if att_i >= len(attempts) - 1:
-                    raise
+                    assert_cd_social_attachment_stored_dimensions(
+                        site,
+                        sm,
+                        context="remediate social reupload (host downscale override)",
+                        allow_host_downscale=True,
+                    )
+                    actions.append("warn: social attachment still downscaled on host after PNG+JPEG")
+                    break
                 continue
             break
         social_url = (sm.get("source_url") or "").strip()
@@ -4905,7 +4930,6 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
 
     hero_fn = f"{prefix}-{slug}-hero.jpg"
     use_png_social = cd_social_upload_should_use_png(site)
-    social_fn = f"{prefix}-{slug}-social.png" if use_png_social else f"{prefix}-{slug}-social.jpg"
 
     print(f"[4] Uploading hero {hero_fn}…")
     hero_media = wp_upload_jpeg(
@@ -4955,7 +4979,14 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
             )
         except RuntimeError:
             if att_i >= len(social_attempts) - 1:
-                raise
+                assert_cd_social_attachment_stored_dimensions(
+                    site,
+                    social_media,
+                    context="pipeline social upload (host downscale override)",
+                    allow_host_downscale=True,
+                )
+                manual_flags.append("social_attachment_host_downscaled:see_console")
+                break
             continue
         break
     social_url = social_media.get("source_url") or ""
