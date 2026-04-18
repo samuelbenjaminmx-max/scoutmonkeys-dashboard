@@ -7,6 +7,7 @@ Environment variables are documented in CLAUDE.md. Run:
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import html as html_module
 import io
@@ -684,7 +685,7 @@ def cd_strip_body_images_visually_matching_client_hero(body_html: str, client_sr
         if not src.lower().startswith(("http://", "https://", "data:")):
             continue
         checked += 1
-        if checked > 40:
+        if checked > 120:
             break
         try:
             pil = _pil_image_from_src(src).convert("RGB")
@@ -770,6 +771,41 @@ def cd_fetch_credit_page_rights_and_title(page_url: str) -> Tuple[bool, str]:
     return False, title_snip
 
 
+def cd_body_image_credit_hrefs_by_src_key(ghtml: str) -> dict[str, str]:
+    """
+    For each distinct ``<img src>`` in the Doc export, record the first wrapping ``<a href=https…>``
+    (same walk as hero credit). Used to attach **public-domain** inline captions for body photos.
+    """
+    out: dict[str, str] = {}
+    if not (ghtml or "").strip():
+        return out
+    soup = BeautifulSoup(ghtml, "html.parser")
+    for img in soup.find_all("img"):
+        src = (img.get("src") or "").strip()
+        if not src or src.startswith("blob:"):
+            continue
+        if src.lower().startswith("data:"):
+            dk = "data:" + hashlib.sha256(src.encode("utf-8", errors="ignore")).hexdigest()[:48]
+            key = dk
+        elif src.lower().startswith(("http://", "https://")):
+            key = _url_key(src)
+        else:
+            continue
+        if not key or key in out:
+            continue
+        el = img.parent
+        for _ in range(6):
+            if el is None:
+                break
+            if getattr(el, "name", "") == "a":
+                href = (el.get("href") or "").strip()
+                if href.lower().startswith(("http://", "https://")):
+                    out[key] = html_module.unescape(href)
+                    break
+            el = el.parent
+    return out
+
+
 _CD_KNOWN_STOCK_ALT_HINTS: Tuple[Tuple[str, str], ...] = (
     ("rain-man", "Tom Cruise and Dustin Hoffman in Rain Man"),
     ("rain_man", "Tom Cruise and Dustin Hoffman in Rain Man"),
@@ -815,11 +851,12 @@ def _cd_infer_alt_from_image_url(src_url: str) -> str:
 
 
 def remove_client_hero_image_from_body_html(body_html: str, client_src: str) -> str:
-    """Hero image is featured_media only — strip the same ``<img>`` from the article body (CD rule)."""
+    """Hero image is featured_media only — strip **every** body ``<img>`` matching the client hero URL."""
     if not body_html or not (client_src or "").strip():
         return body_html
     soup = BeautifulSoup(body_html, "html.parser")
     ck = _url_key(client_src)
+    removed = 0
     for img in list(soup.find_all("img")):
         if _url_key(img.get("src") or "") != ck:
             continue
@@ -828,13 +865,32 @@ def remove_client_hero_image_from_body_html(body_html: str, client_src: str) -> 
         if parent and getattr(parent, "name", "") == "p":
             if not parent.get_text(strip=True) and not parent.find("img"):
                 parent.decompose()
-        break
+        removed += 1
+    if removed:
+        print(f"[2c] CD body: removed {removed} client-hero <img> node(s) (URL match — featured image only).")
     return str(soup)
 
 
 def _norm_title_text(t: str) -> str:
     t = unicodedata.normalize("NFKC", t or "")
     return re.sub(r"\s+", " ", t).strip().lower()
+
+
+def _cd_generic_inline_alt(alt_raw: str, post_title: str) -> bool:
+    """True when inline ``alt`` should be replaced (empty, title echo, or placeholder)."""
+    t = unicodedata.normalize("NFKC", (alt_raw or "").strip())
+    if not t:
+        return True
+    if _norm_title_text(t) == _norm_title_text(post_title):
+        return True
+    tl = t.lower()
+    if "photograph illustrating this sponsored article" in tl:
+        return True
+    if tl.startswith("inline photograph"):
+        return True
+    if len(t) < 10:
+        return True
+    return False
 
 
 def _cd_inline_alt_for_img(
@@ -853,6 +909,176 @@ def _cd_inline_alt_for_img(
     if from_url:
         return from_url[:180]
     return "Photograph illustrating this sponsored article"
+
+
+def _anthropic_vision_inline_alts(
+    post_title: str,
+    numbered_thumbs: list[tuple[int, bytes]],
+) -> dict[int, str]:
+    """
+    One vision call: return ``{slot: alt_text}`` with 12–160 char photo descriptions (no article title).
+    """
+    if not numbered_thumbs or not ANTHROPIC_KEY:
+        return {}
+    system = (
+        "You write image alt text for accessibility on a news site. "
+        "Describe only what is visible in each numbered image (people, objects, setting, action). "
+        "Do not repeat the article title or SEO keywords. "
+        "Each description must be 12–160 characters, plain English, no quotes. "
+        "Output ONLY compact JSON like {\"1\":\"...\",\"2\":\"...\"} mapping slot numbers to strings."
+    )
+    parts: list[Any] = [
+        {
+            "type": "text",
+            "text": (
+                f"Article title (do NOT paste into alts): {post_title[:120]!r}\n"
+                f"Slots present: {', '.join(str(s) for s, _ in numbered_thumbs)}"
+            ),
+        }
+    ]
+    for slot, jpeg_bytes in numbered_thumbs:
+        parts.append({"type": "text", "text": f"\nSlot {slot}:\n"})
+        parts.append(
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/jpeg",
+                    "data": base64.b64encode(jpeg_bytes).decode("ascii"),
+                },
+            }
+        )
+    payload = {
+        "model": ANTHROPIC_MODEL,
+        "max_tokens": 2500,
+        "temperature": 0.2,
+        "system": system,
+        "messages": [{"role": "user", "content": parts}],
+    }
+    headers = {
+        "x-api-key": ANTHROPIC_KEY,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    r = requests.post(
+        "https://api.anthropic.com/v1/messages",
+        headers=headers,
+        json=payload,
+        timeout=300,
+    )
+    if not r.ok:
+        print(f"[warn] inline vision alt: Anthropic HTTP {r.status_code}: {r.text[:240]}")
+        return {}
+    data = r.json()
+    content = data.get("content")
+    if not content or not isinstance(content, list) or not content[0].get("text"):
+        return {}
+    raw = content[0]["text"]
+    try:
+        blob = _extract_json_blob(raw)
+    except Exception:
+        print(f"[warn] inline vision alt: bad JSON from model: {raw[:200]!r}")
+        return {}
+    out: dict[int, str] = {}
+    if not isinstance(blob, dict):
+        return out
+    for k, v in blob.items():
+        try:
+            slot = int(str(k).strip())
+        except ValueError:
+            continue
+        s = unicodedata.normalize("NFKC", str(v or "").strip())
+        if 8 <= len(s) <= 180:
+            out[slot] = s[:180]
+    return out
+
+
+def cd_enrich_inline_image_alts_with_vision(body_html: str, post_title: str) -> str:
+    """Replace weak inline ``alt`` values using a single batched Anthropic vision call (CD)."""
+    if not (body_html or "").strip():
+        return body_html
+    if (os.environ.get("CD_INLINE_VISION_ALTS") or "1").strip().lower() in ("0", "false", "no", "off"):
+        return body_html
+    if not ANTHROPIC_KEY:
+        return body_html
+    soup = BeautifulSoup(body_html, "html.parser")
+    thumbs: list[tuple[int, bytes]] = []
+    img_by_slot: dict[int, Any] = {}
+    for img in soup.find_all("img"):
+        src = (img.get("src") or "").strip()
+        if not src.lower().startswith("http"):
+            continue
+        tit = (img.get("title") or "").strip()
+        m = re.match(r"^(CD|DCR)-Insert(\d+)$", tit, re.I)
+        if not m:
+            continue
+        slot = int(m.group(2))
+        alt0 = (img.get("alt") or "").strip()
+        if not _cd_generic_inline_alt(alt0, post_title):
+            continue
+        if slot in img_by_slot:
+            continue
+        try:
+            rr = requests.get(
+                src,
+                timeout=90,
+                headers={"User-Agent": "ScoutmonkeysPipeline/1.0"},
+            )
+            rr.raise_for_status()
+            pil = Image.open(io.BytesIO(rr.content)).convert("RGB")
+            pil.thumbnail((768, 768))
+            b = io.BytesIO()
+            pil.save(b, format="JPEG", quality=86)
+            raw_j = b.getvalue()
+        except Exception as ex:
+            print(f"[warn] inline vision alt: skip slot {slot} ({src[:70]}…): {ex}")
+            continue
+        thumbs.append((slot, raw_j))
+        img_by_slot[slot] = img
+        if len(thumbs) >= 6:
+            break
+    if not thumbs:
+        return body_html
+    alts = _anthropic_vision_inline_alts(post_title, thumbs)
+    if not alts:
+        return body_html
+    changed = False
+    for sl, txt in alts.items():
+        im = img_by_slot.get(sl)
+        if im is not None:
+            im["alt"] = txt
+            changed = True
+    if changed:
+        print(f"[2c] CD inline images: vision alt refresh for {len(alts)} slot(s).")
+    return str(soup) if changed else body_html
+
+
+def cd_insert_spacers_between_adjacent_figures(html: str) -> str:
+    """Insert ``<p><br/></p>`` between consecutive ``<figure>`` blocks (restores Doc-like breathing room)."""
+    if not (html or "").strip():
+        return html
+    soup = BeautifulSoup(html, "html.parser")
+    changed = False
+    for _ in range(80):
+        hit = False
+        for fig in soup.find_all("figure"):
+            nxt = fig.next_sibling
+            while nxt is not None and getattr(nxt, "name", None) is None:
+                if str(nxt).strip():
+                    break
+                nxt = nxt.next_sibling
+            if nxt is not None and getattr(nxt, "name", "") == "figure":
+                spacer = soup.new_tag("p")
+                spacer.append(soup.new_tag("br"))
+                fig.insert_after(spacer)
+                hit = True
+                changed = True
+                break
+        if not hit:
+            break
+    if changed:
+        print("[2c] CD body: inserted <p><br/></p> between adjacent figure blocks.")
+    return str(soup) if changed else html
 
 
 def _merge_css_style(prev: Optional[str], add: str) -> str:
@@ -964,12 +1190,15 @@ def strip_duplicate_lead_title_from_body_html(body_html: str, h1_text: str) -> s
 def _p_is_gdoc_spacing_only(par: Any) -> bool:
     """
     True when ``<p>`` contributes no visible text — Google Docs often emits empty
-    paragraphs, ``<p><br></p>``, ``<p>&nbsp;</p>``, or empty wrapped spans that
-    create double spacing in WordPress.
+    paragraphs, ``<p>&nbsp;</p>``, or empty wrapped spans. **Keeps** ``<p>`` that
+    contain only ``<br>`` / ``<br/>`` so vertical gaps between image blocks survive
+    normalization (avoids figures stacking back-to-back).
     """
     if par is None or getattr(par, "name", "") != "p":
         return False
     if par.find("img"):
+        return False
+    if par.find(["br", "hr"]):
         return False
     text = par.get_text(separator="", strip=False)
     text = unicodedata.normalize("NFKC", text)
@@ -2124,7 +2353,7 @@ def resolve_cd_sponsored_category(
 def assert_cd_social_attachment_stored_dimensions(
     site: dict, media: dict, *, context: str
 ) -> None:
-    """Fail fast if WordPress did not keep the social JPEG at CD pixel dimensions."""
+    """Fail fast if WordPress did not keep the social raster (PNG/JPEG) at CD pixel dimensions."""
     if site.get("key") != "cd":
         return
     md = media.get("media_details") or {}
@@ -2148,8 +2377,9 @@ def assert_cd_social_attachment_stored_dimensions(
             f"After upload, REST reports {sw}×{sh} ({context}). "
             "The file was uploaded at the correct size in the pipeline — if dimensions shrink here, "
             "the site is applying \"big image\" downscaling or another image plugin/CDN rule. "
-            "Raise WordPress `big_image_size_threshold` (e.g. ≥2560) or disable that scaling so "
-            f"{ew}×{eh} attachments are stored unchanged, then re-run. "
+            "CD defaults to **PNG** for the social file (`CD_SOCIAL_UPLOAD_FORMAT=png`) because many "
+            "hosts only downscale big **JPEG** uploads — try PNG first, or raise "
+            "`big_image_size_threshold` in wp-config. "
             "Or set CD_RELAX_SOCIAL_WP_PIXEL_ASSERT=1 once to save a draft despite scaled pixels."
         )
 
@@ -2204,14 +2434,40 @@ def wp_auth(site: dict) -> Tuple[str, Tuple[str, str]]:
     return site["wp_url"], (site["wp_user"], site["wp_pass"])
 
 
-def wp_upload_jpeg(
-    site: dict, image: Image.Image, filename: str, title: str, alt: str, caption: str
+def cd_social_upload_should_use_png(site: dict) -> bool:
+    """
+    CD social OG image: default **PNG** upload — many WordPress hosts downscale only large JPEGs;
+    PNG often preserves exact 1920×1400. Override with ``CD_SOCIAL_UPLOAD_FORMAT=jpeg``.
+    """
+    if site.get("key") != "cd":
+        return False
+    v = (os.environ.get("CD_SOCIAL_UPLOAD_FORMAT") or "png").strip().lower()
+    return v not in ("jpeg", "jpg", "image/jpeg")
+
+
+def wp_upload_image(
+    site: dict,
+    image: Image.Image,
+    filename: str,
+    title: str,
+    alt: str,
+    caption: str,
+    *,
+    image_format: str = "JPEG",
+    jpeg_quality: int = 92,
 ) -> dict:
+    """Upload raster to WordPress media library; ``image_format`` is ``JPEG`` or ``PNG``."""
     wp, auth = wp_auth(site)
     buf = io.BytesIO()
-    image.save(buf, format="JPEG", quality=92)
+    fmt = (image_format or "JPEG").strip().upper()
+    if fmt == "PNG":
+        image.save(buf, format="PNG", optimize=True)
+        mime = "image/png"
+    else:
+        image.save(buf, format="JPEG", quality=int(jpeg_quality), optimize=True)
+        mime = "image/jpeg"
     buf.seek(0)
-    files = {"file": (filename, buf, "image/jpeg")}
+    files = {"file": (filename, buf, mime)}
     r = requests.post(f"{wp}/wp-json/wp/v2/media", auth=auth, files=files, timeout=120)
     r.raise_for_status()
     media = r.json()
@@ -2229,6 +2485,14 @@ def wp_upload_jpeg(
     )
     r2.raise_for_status()
     return r2.json()
+
+
+def wp_upload_jpeg(
+    site: dict, image: Image.Image, filename: str, title: str, alt: str, caption: str
+) -> dict:
+    return wp_upload_image(
+        site, image, filename, title, alt, caption, image_format="JPEG", jpeg_quality=92
+    )
 
 
 def cd_resolve_media_id_by_title(site: dict, title: str) -> Optional[int]:
@@ -2347,6 +2611,7 @@ def cd_reupload_inline_body_images(
     topic_slug: str,
     post_title: str,
     hero_src_to_skip: str = "",
+    credit_by_src: Optional[dict[str, str]] = None,
 ) -> str:
     """
     Upload each non-hero inline ``<img>`` to WordPress as ``{prefix}-Insert1``, ``{prefix}-Insert2``, …
@@ -2356,6 +2621,10 @@ def cd_reupload_inline_body_images(
     Google Docs often export body images as ``data:`` URIs — those are decoded, deduped, and
     uploaded the same as ``http(s):`` sources. Any pixel match to **``hero_src_to_skip``** (the
     client hero) is stripped so the hero never remains duplicated in the article HTML.
+
+    When ``credit_by_src`` maps an image ``src`` key to a rights page URL and that page reads as
+    **public domain** (same HTML heuristics as the client hero), a ``Photo:`` caption paragraph
+    is inserted under the inline image (same shape as ``client_photo_citation_html``).
     """
     if not (body_html or "").strip():
         return body_html
@@ -2372,6 +2641,36 @@ def cd_reupload_inline_body_images(
             hero_pil_cache = _pil_image_from_src(hss).convert("RGB")
         except Exception:
             hero_pil_cache = None
+    cred = credit_by_src or {}
+    wp_u, auth_u = wp_auth(site)
+    _rights_cache: dict[str, tuple[str, str]] = {}
+
+    def _credit_page_for_src(s: str) -> str:
+        s = (s or "").strip()
+        if not s:
+            return ""
+        if s.lower().startswith("data:"):
+            dk = "data:" + hashlib.sha256(s.encode("utf-8", errors="ignore")).hexdigest()[:48]
+            return (cred.get(dk) or "").strip()
+        return (cred.get(_url_key(s)) or "").strip()
+
+    def _maybe_pd_caption_html(s: str) -> tuple[str, str]:
+        """``(caption_html_for_body, plain_caption_for_wp_media)`` — empty when not verified PD."""
+        href = _credit_page_for_src(s)
+        if not href:
+            return "", ""
+        if href in _rights_cache:
+            return _rights_cache[href]
+        ok_pd, title_snip = cd_fetch_credit_page_rights_and_title(href)
+        if not ok_pd:
+            _rights_cache[href] = ("", "")
+            return "", ""
+        label = (title_snip or "Public domain photograph").strip()
+        html_c = client_photo_citation_html(href, label)
+        plain = BeautifulSoup(html_c, "html.parser").get_text(" ", strip=True)[:500]
+        _rights_cache[href] = (html_c, plain)
+        return html_c, plain
+
     for img in soup.find_all("img"):
         src = (img.get("src") or "").strip()
         if not src or src.startswith("blob:"):
@@ -2400,6 +2699,7 @@ def cd_reupload_inline_body_images(
             dup_removed += 1
             continue
         slot += 1
+        pd_html, pd_plain = _maybe_pd_caption_html(src)
         if _cd_insert_src_matches_slot_title(site, src, slot):
             title_m = cd_insert_media_title(site, slot)
             alt0 = (img.get("alt") or img.get("title") or "").strip()
@@ -2426,6 +2726,21 @@ def cd_reupload_inline_body_images(
             if mid is not None:
                 _cd_merge_wp_image_class(img, mid)
                 changed = True
+            if pd_html:
+                cap_frag = BeautifulSoup(pd_html, "html.parser")
+                for p_cap in cap_frag.find_all("p", recursive=False):
+                    img.insert_after(p_cap)
+                    changed = True
+                if pd_plain and mid is not None:
+                    try:
+                        requests.post(
+                            f"{wp_u}/wp-json/wp/v2/media/{int(mid)}",
+                            auth=auth_u,
+                            json={"caption": pd_plain},
+                            timeout=30,
+                        )
+                    except Exception:
+                        pass
             seen_fp.add(fp)
             continue
         cap_txt = ""
@@ -2438,20 +2753,25 @@ def cd_reupload_inline_body_images(
         alt_f = _cd_inline_alt_for_img(alt0, post_title, slot=slot, src_url=src)
         title_m = cd_insert_media_title(site, slot)
         fn = f"{title_m}.jpg"
+        cap_for_wp = pd_plain if pd_plain else cap_txt
         try:
-            m = wp_upload_jpeg(site, pil, fn, title_m, alt_f, cap_txt)
+            m = wp_upload_jpeg(site, pil, fn, title_m, alt_f, cap_for_wp)
         except Exception as e:
             print(f"[warn] inline image WordPress upload failed ({fn}): {e}")
             continue
         nu = (m.get("source_url") or "").strip()
         if nu:
+            changed = True
             img["src"] = nu
             img["alt"] = alt_f
             img["title"] = title_m
             mid_up = m.get("id")
             if mid_up is not None:
                 _cd_merge_wp_image_class(img, int(mid_up))
-            changed = True
+            if pd_html:
+                cap_frag = BeautifulSoup(pd_html, "html.parser")
+                for p_cap in cap_frag.find_all("p", recursive=False):
+                    img.insert_after(p_cap)
             seen_fp.add(fp)
     if dup_removed:
         print(
@@ -2523,12 +2843,12 @@ def push_aioseo_and_cdseo(
 ) -> None:
     wp, auth = wp_auth(site)
     st_clip = int(seo_title_max) if seo_title_max is not None else int(site["seo_title_max"])
-    # 1) AIOSEO custom endpoint (Cultural Daily)
     st = (seo.get("seo_title") or "").strip()
     md = (seo.get("meta_description") or "").strip()
+    pid = int(post_id)
     body = {
-        "postId": post_id,
-        "post_id": post_id,
+        "postId": pid,
+        "post_id": pid,
         "title": st,
         "description": md,
         "og_title": st,
@@ -2545,42 +2865,84 @@ def push_aioseo_and_cdseo(
             ensure_ascii=False,
         ),
     }
-    # AIOSEO expects postId like GET ``…/post?postId=`` — JSON body alone returns "Post ID is missing" on some installs.
-    r = requests.post(
-        f"{wp}/wp-json/aioseo/v1/post",
-        auth=auth,
-        params={"postId": int(post_id)},
-        json=body,
-        timeout=60,
-    )
-    if not r.ok:
-        r2 = requests.post(
-            f"{wp}/wp-json/aioseo/v1/post/{int(post_id)}",
+    body_no_dup_ids = {k: v for k, v in body.items() if k not in ("postId", "post_id")}
+    cd_payload = {
+        "post_id": pid,
+        "seo_title": (seo.get("seo_title") or "")[:st_clip],
+        "meta_description": (seo.get("meta_description") or "")[:160],
+        "focus_keyphrase": (seo.get("focus_keyword") or "")[:191],
+        "og_image_url": og_custom_url,
+    }
+
+    def _og_from_aioseo_get() -> str:
+        g = requests.get(
+            f"{wp}/wp-json/aioseo/v1/post?postId={pid}",
             auth=auth,
-            json=body,
-            timeout=60,
+            timeout=30,
         )
-        if r2.ok:
-            r = r2
+        if not g.ok:
+            return ""
+        try:
+            cur = (g.json().get("data") or {}).get("currentPost") or {}
+            return (cur.get("og_image_custom_url") or "").strip()
+        except Exception:
+            return ""
+
+    aio_warn = ""
+    cd_warn = ""
+    for attempt in range(3):
+        aio_ok = False
+        tries: List[Tuple[str, dict, dict]] = [
+            (f"{wp}/wp-json/aioseo/v1/post", {"postId": pid}, body),
+            (f"{wp}/wp-json/aioseo/v1/post", {"post_id": pid}, body),
+            (f"{wp}/wp-json/aioseo/v1/post", {"postId": pid}, body_no_dup_ids),
+            (f"{wp}/wp-json/aioseo/v1/post", {"id": pid}, body_no_dup_ids),
+        ]
+        for url, params, jb in tries:
+            r = requests.post(url, auth=auth, params=params, json=jb, timeout=90)
+            if r.ok:
+                aio_ok = True
+                break
+            aio_warn = f"{r.status_code}: {r.text[:320]}"
+        if not aio_ok:
+            r2 = requests.post(
+                f"{wp}/wp-json/aioseo/v1/post/{pid}",
+                auth=auth,
+                json=body,
+                timeout=90,
+            )
+            if r2.ok:
+                aio_ok = True
+            else:
+                aio_warn = aio_warn + f" | path {r2.status_code}: {r2.text[:220]}"
+
+        time.sleep(0.35)
+        r_cd = requests.post(
+            f"{wp}/wp-json/cd-seo/v1/update",
+            auth=auth,
+            json=cd_payload,
+            timeout=90,
+        )
+        if r_cd.ok:
+            cd_warn = ""
         else:
-            print(f"[warn] aioseo/v1/post {r.status_code}: {r.text[:400]}")
-            if r2.status_code != r.status_code:
-                print(f"[warn] aioseo/v1/post/{post_id} fallback {r2.status_code}: {r2.text[:400]}")
-    # 2) cd-seo plugin persists AIOSEO DB + OG (see wp-json /cd-seo/v1/update args)
-    r_cd = requests.post(
-        f"{wp}/wp-json/cd-seo/v1/update",
-        auth=auth,
-        json={
-            "post_id": post_id,
-            "seo_title": (seo.get("seo_title") or "")[:st_clip],
-            "meta_description": (seo.get("meta_description") or "")[:160],
-            "focus_keyphrase": (seo.get("focus_keyword") or "")[:191],
-            "og_image_url": og_custom_url,
-        },
-        timeout=60,
-    )
-    if not r_cd.ok:
-        print(f"[warn] cd-seo/v1/update {r_cd.status_code}: {r_cd.text[:400]}")
+            cd_warn = f"{r_cd.status_code}: {r_cd.text[:320]}"
+
+        og_now = _og_from_aioseo_get()
+        if aio_ok and r_cd.ok and og_now:
+            return
+        if attempt < 2:
+            time.sleep(0.55 + float(attempt) * 0.35)
+
+    if aio_warn:
+        print(f"[warn] aioseo/v1/post persist uncertain after retries: {aio_warn}")
+    if cd_warn:
+        print(f"[warn] cd-seo/v1/update {cd_warn}")
+    if not _og_from_aioseo_get():
+        print(
+            f"[warn] AIOSEO GET still missing og_image_custom_url for post {pid} — "
+            "check plugin REST / capability; cd-seo may still have mirrored DB fields."
+        )
 
 
 def find_social_attachment_by_title(site: dict, topic_slug: str, hero_id: int) -> Optional[int]:
@@ -3039,7 +3401,7 @@ def verify_post(
         og_b = _normalize_wp_media_basename(og_pick)
         soc_b = _normalize_wp_media_basename(s_url)
         chk(
-            "OG / custom image URL basename is the social JPEG (not hero)",
+            "OG / custom image URL basename is the social file (not hero)",
             bool(og_pick) and og_b == soc_b and "-social" in og_b and "-hero" not in og_b,
             f"{og_b!r} vs {soc_b!r}",
         )
@@ -3192,7 +3554,7 @@ def _parse_topic_slug_from_attachment_title(title: str, prefix: str) -> str:
 
 
 def _cd_collect_media_ids_and_slug(site: dict, wp: str, auth, post: dict) -> tuple[set[int], str]:
-    """Featured media, body ``wp-image-*``, and social JPEG for this draft; slug from hero title."""
+    """Featured media, body ``wp-image-*``, and social attachment for this draft; slug from hero title."""
     raw_content = (post.get("content") or {}).get("raw") or ""
     hero_id = int(post.get("featured_media") or 0)
     media_ids: set[int] = set()
@@ -3557,9 +3919,13 @@ def remediate_latest_cd_draft() -> dict:
         post_title=raw_title,
         hero_src_to_skip=hero_url,
     )
+    if not used_pex:
+        pre2 = cd_strip_body_images_visually_matching_client_hero(pre2, hero_url)
     pre2 = cd_promote_gdoc_heading_paragraphs(pre2)
     pre2 = cd_format_body_inline_images(pre2, post_title=raw_title, site=site)
+    pre2 = cd_insert_spacers_between_adjacent_figures(pre2)
     pre2 = format_to_audit_standard(pre2, site=site)
+    pre2 = cd_enrich_inline_image_alts_with_vision(pre2, raw_title)
     cd_sync_inline_attachment_alts_from_body(site, pre2)
     new_content = pre2.rstrip() + (("\n\n" + tail_suffix) if tail_suffix else "")
     # Always persist processed HTML on remediate: strict string compare misses WP serialization drift and
@@ -3637,14 +4003,17 @@ def remediate_latest_cd_draft() -> dict:
         if cap and not cap.startswith("Photo:"):
             cap = f"Photo: {cap}" if "pexels" in cap.lower() else ""
         prefix = site["prefix"]
-        social_fn = f"{prefix}-{slug}-social.jpg"
-        sm = wp_upload_jpeg(
+        use_png_social = cd_social_upload_should_use_png(site)
+        social_fn = f"{prefix}-{slug}-social.png" if use_png_social else f"{prefix}-{slug}-social.jpg"
+        sm = wp_upload_image(
             site,
             social_img,
             social_fn,
             f"{prefix}-{slug}-social",
             alt,
             cap,
+            image_format="PNG" if use_png_social else "JPEG",
+            jpeg_quality=96,
         )
         sid = int(sm["id"])
         r_sv = requests.get(
@@ -3925,6 +4294,7 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     print("[2a] Article body from Google Doc HTML export (Claude article_body_html ignored).")
     manual_flags.append("article_body_source:google_doc_export")
     body = extract_google_doc_body_inner_html(ghtml)
+    credit_by_src = cd_body_image_credit_hrefs_by_src_key(ghtml) if site["key"] == "cd" else {}
     if site["key"] == "cd":
         try:
             from corpus_compare import compare_doc_to_corpora
@@ -3967,10 +4337,17 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
             topic_slug=topic,
             post_title=title,
             hero_src_to_skip=(client_src or "").strip(),
+            credit_by_src=credit_by_src,
         )
+        if (client_src or "").strip():
+            body = cd_strip_body_images_visually_matching_client_hero(
+                body, (client_src or "").strip()
+            )
         body = cd_promote_gdoc_heading_paragraphs(body)
         body = cd_format_body_inline_images(body, post_title=title, site=site)
+        body = cd_insert_spacers_between_adjacent_figures(body)
         body = format_to_audit_standard(body, site=site)
+        body = cd_enrich_inline_image_alts_with_vision(body, title)
         cd_sync_inline_attachment_alts_from_body(site, body)
     if site["key"] == "cd":
         focus = refine_focus_keyword_for_content(
@@ -4056,7 +4433,8 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         alt = f"{title} — banner image highlighting the story's subject matter."
 
     hero_fn = f"{prefix}-{slug}-hero.jpg"
-    social_fn = f"{prefix}-{slug}-social.jpg"
+    use_png_social = cd_social_upload_should_use_png(site)
+    social_fn = f"{prefix}-{slug}-social.png" if use_png_social else f"{prefix}-{slug}-social.jpg"
 
     print(f"[4] Uploading hero {hero_fn}…")
     hero_media = wp_upload_jpeg(
@@ -4067,8 +4445,15 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
 
     print(f"[5] Uploading social {social_fn}…")
     wp_u, auth_u = wp_auth(site)
-    social_media = wp_upload_jpeg(
-        site, social_img, social_fn, f"{prefix}-{slug}-social", alt, cap
+    social_media = wp_upload_image(
+        site,
+        social_img,
+        social_fn,
+        f"{prefix}-{slug}-social",
+        alt,
+        cap,
+        image_format="PNG" if use_png_social else "JPEG",
+        jpeg_quality=96,
     )
     social_id = int(social_media["id"])
     r_sv = requests.get(
