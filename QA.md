@@ -29,7 +29,7 @@ Use this list before you call a publish **complete**. The automated `pipeline.ve
 - [ ] **DCR:** social matches configured dimensions (defaults **1200 × 630**).
 - [ ] Social image is **not** the same asset as the hero.
 - [ ] Attachment **title** matches `{PREFIX}-{topic}-social`.
-- [ ] **Social alt text** matches **hero alt text** exactly.
+- [ ] **Social alt text** is a short description of the photograph (same pipeline source as hero when both are the same crop family is fine) — **never** the article title.
 - [ ] Social caption starts with `Photo:`.
 - [ ] **AIOSEO** shows a **custom** OG image URL, and **`cd-seo`** read-back reflects **`og_image_url`** / postmeta parity (CD).
 

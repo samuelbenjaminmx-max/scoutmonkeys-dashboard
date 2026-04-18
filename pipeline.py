@@ -18,9 +18,10 @@ import time
 import unicodedata
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 import requests
-from bs4 import BeautifulSoup, Comment
+from bs4 import BeautifulSoup, Comment, NavigableString
 from PIL import Image, ImageOps
 
 import doc_parser
@@ -591,6 +592,29 @@ def _norm_title_text(t: str) -> str:
     return re.sub(r"\s+", " ", t).strip().lower()
 
 
+def _cd_inline_alt_for_img(alt_raw: str, post_title: str) -> str:
+    """Inline ``alt``: short photo description — never the article title."""
+    tnorm = _norm_title_text(post_title)
+    pa = unicodedata.normalize("NFKC", (alt_raw or "").strip())
+    if pa and _norm_title_text(pa) != tnorm and 8 <= len(pa) <= 180:
+        return pa[:180]
+    return "Photograph supporting this sponsored article"
+
+
+def _merge_css_style(prev: Optional[str], add: str) -> str:
+    prev = (prev or "").strip().rstrip(";")
+    add = (add or "").strip().rstrip(";")
+    if not prev:
+        return add
+    if not add:
+        return prev
+    return f"{prev};{add}"
+
+
+def _urls_loosely_same(a: str, b: str) -> bool:
+    return _url_key(a) == _url_key(b)
+
+
 def strip_duplicate_lead_title_from_body_html(body_html: str, h1_text: str) -> str:
     """H1 lives only in the WordPress title field — remove duplicate lead heading/body title (CD+CRITICAL)."""
     if not body_html or not (h1_text or "").strip():
@@ -612,19 +636,33 @@ def strip_duplicate_lead_title_from_body_html(body_html: str, h1_text: str) -> s
 
 
 def normalize_cd_body_vertical_spacing(html: str) -> str:
-    """At most one blank line between block elements (no triple+ newlines in serialized HTML)."""
+    """At most one blank line between serialized elements (no runs of 3+ newlines between tags)."""
     if not html:
         return html
-    s = re.sub(r"\n{3,}", "\n\n", html)
+    s = re.sub(r">\s*\n(?:\s*\n){2,}\s*<", ">\n\n<", html)
+    s = re.sub(r"\n{3,}", "\n\n", s)
     s = re.sub(r"(</p>)\s*\n\s*\n\s*\n+", r"\1\n\n", s)
     s = re.sub(r"(</h[12]>)\s*\n\s*\n\s*\n+", r"\1\n\n", s)
     return s
 
 
-def cd_format_body_inline_images(html: str) -> str:
+def _p_contains_only_img(par: Any) -> bool:
+    if par is None or getattr(par, "name", "") != "p":
+        return False
+    for child in par.children:
+        if isinstance(child, NavigableString):
+            if str(child).strip():
+                return False
+        elif getattr(child, "name", "") != "img":
+            return False
+    return par.find("img") is not None
+
+
+def cd_format_body_inline_images(html: str, *, post_title: str = "") -> str:
     """
-    Center inline ``<img>`` tags, ensure descriptive alt text, and place a following ``Photo:`` credit
-    line in a centered caption paragraph when present.
+    Center inline images with ``<figure align="center">`` and ``display:block;margin:0 auto`` on the
+    ``<img>``; ensure alt is a photo description (never the article title); place a following ``Photo:``
+    credit in a centered caption paragraph when present.
     """
     soup = BeautifulSoup(html, "html.parser")
     for img in list(soup.find_all("img")):
@@ -632,26 +670,35 @@ def cd_format_body_inline_images(html: str) -> str:
         if not src.startswith("http"):
             continue
         alt0 = (img.get("alt") or img.get("title") or "").strip()
-        if not alt0:
-            alt0 = "Photograph supporting this sponsored article"
-        img["alt"] = alt0
+        img["alt"] = _cd_inline_alt_for_img(alt0, post_title)
+        if "title" in img.attrs:
+            del img["title"]
+        img["style"] = _merge_css_style(img.get("style"), "display:block;margin:0 auto")
         cap_txt = ""
         nxt = img.find_next("p")
         if nxt and nxt.get_text(" ", strip=True).lower().startswith("photo:"):
             cap_txt = nxt.get_text(" ", strip=True)
             nxt.decompose()
-        if img.parent is None or getattr(img.parent, "name", "") != "p":
-            img.wrap(soup.new_tag("p"))
-        par = img.find_parent("p")
-        if par is not None:
-            prev_style = (par.get("style") or "").strip()
-            par["style"] = (prev_style + ";" if prev_style else "") + "text-align:center"
-        if cap_txt and par is not None:
-            cap_p = soup.new_tag("p", attrs={"style": "text-align:center"})
+        parent = img.parent
+        if parent and getattr(parent, "name", "") == "figure" and str(parent.get("align") or "").lower() == "center":
+            fig = parent
+        elif parent and _p_contains_only_img(parent):
+            fig = soup.new_tag("figure", attrs={"align": "center"})
+            parent.replace_with(fig)
+            fig.append(img)
+        else:
+            fig = soup.new_tag("figure", attrs={"align": "center"})
+            img.replace_with(fig)
+            fig.append(img)
+        if cap_txt:
+            cap_p = soup.new_tag(
+                "p",
+                attrs={"style": "display:block;margin:0 auto;text-align:center"},
+            )
             em = soup.new_tag("em")
             em.append(cap_txt)
             cap_p.append(em)
-            par.insert_after(cap_p)
+            fig.insert_after(cap_p)
     return str(soup)
 
 
@@ -959,6 +1006,94 @@ def wp_upload_jpeg(
     return r2.json()
 
 
+def _basename_media_path(url: str) -> str:
+    return (urlparse(url or "").path or "").rsplit("/", 1)[-1].lower()
+
+
+def _normalize_wp_media_basename(url: str) -> str:
+    """Strip common WordPress size suffixes so OG URL can be compared to ``source_url``."""
+    b = _basename_media_path(url)
+    b = re.sub(r"-scaled(?=\.[a-z]+$)", "", b, flags=re.I)
+    b = re.sub(r"-\d+x\d+(?=\.[a-z]+$)", "", b, flags=re.I)
+    return b
+
+
+def _cd_insert_src_named_for_slot(site: dict, src: str, topic_slug: str, slot: int) -> bool:
+    slug = (topic_slug or "").strip().lower()
+    pfx = (site.get("prefix") or "").strip().lower()
+    if not slug or not pfx or slot < 1:
+        return False
+    base = _basename_media_path(src)
+    want = f"{pfx}-{slug}-insert-{slot}".lower()
+    return base.startswith(want + ".jp")
+
+
+def cd_reupload_inline_body_images(
+    site: dict,
+    body_html: str,
+    *,
+    topic_slug: str,
+    post_title: str,
+    hero_src_to_skip: str = "",
+) -> str:
+    """
+    Upload each non-hero inline ``<img>`` to WordPress as ``{prefix}-{topic}-insert-{n}`` (filename + title).
+    Skips URLs whose basename already matches that ordinal among body images (in document order).
+    """
+    if not (body_html or "").strip():
+        return body_html
+    prefix = (site.get("prefix") or "CD").strip()
+    slug = re.sub(r"[^a-z0-9-]+", "-", (topic_slug or "topic").lower()).strip("-") or "topic"
+    soup = BeautifulSoup(body_html, "html.parser")
+    changed = False
+    slot = 0
+    for img in soup.find_all("img"):
+        src = (img.get("src") or "").strip()
+        if not src.lower().startswith("http"):
+            continue
+        if hero_src_to_skip and _urls_loosely_same(src, hero_src_to_skip):
+            continue
+        slot += 1
+        if _cd_insert_src_named_for_slot(site, src, slug, slot):
+            alt0 = (img.get("alt") or img.get("title") or "").strip()
+            new_alt = _cd_inline_alt_for_img(alt0, post_title)
+            if (img.get("alt") or "") != new_alt:
+                img["alt"] = new_alt
+                changed = True
+            if "title" in img.attrs:
+                del img["title"]
+                changed = True
+            continue
+        cap_txt = ""
+        nxt = img.find_next("p")
+        if nxt and nxt.get_text(" ", strip=True).lower().startswith("photo:"):
+            cap_txt = nxt.get_text(" ", strip=True)
+            nxt.decompose()
+            changed = True
+        alt0 = (img.get("alt") or img.get("title") or "").strip()
+        alt_f = _cd_inline_alt_for_img(alt0, post_title)
+        try:
+            pil = _pil_image_from_src(src).convert("RGB")
+        except Exception as e:
+            print(f"[warn] inline image upload skipped ({src[:90]}…): {e}")
+            continue
+        fn = f"{prefix}-{slug}-insert-{slot}.jpg"
+        title_m = f"{prefix}-{slug}-insert-{slot}"
+        try:
+            m = wp_upload_jpeg(site, pil, fn, title_m, alt_f, cap_txt)
+        except Exception as e:
+            print(f"[warn] inline image WordPress upload failed ({fn}): {e}")
+            continue
+        nu = (m.get("source_url") or "").strip()
+        if nu:
+            img["src"] = nu
+            img["alt"] = alt_f
+            if "title" in img.attrs:
+                del img["title"]
+            changed = True
+    return str(soup) if changed else body_html
+
+
 def resolve_default_category(site: dict, hint: str) -> int:
     wp, auth = wp_auth(site)
     for slug in ("our-friends", "friends", "sponsored"):
@@ -1037,6 +1172,7 @@ def push_aioseo_and_cdseo(
         "og_image_custom_url": og_custom_url,
         "og_image_custom": True,
         "twitter_use_og": True,
+        "twitter_image_custom_url": og_custom_url,
         "keyphrases": json.dumps(
             {"focus": {"keyphrase": seo.get("focus_keyword") or ""}},
             ensure_ascii=False,
@@ -1067,6 +1203,38 @@ def push_aioseo_and_cdseo(
         print(f"[warn] cd-seo/v1/update {r2.status_code}: {r2.text[:400]}")
 
 
+def find_social_attachment_by_title(site: dict, topic_slug: str, hero_id: int) -> Optional[int]:
+    """
+    Resolve the ``{prefix}-{topic}-social`` media row (newest first when duplicates exist).
+    Never returns ``hero_id``.
+    """
+    wp, auth = wp_auth(site)
+    prefix = (site.get("prefix") or "").strip()
+    slug = re.sub(r"[^a-z0-9-]+", "-", (topic_slug or "topic").lower()).strip("-") or "topic"
+    need = f"{prefix}-{slug}-social"
+    r = requests.get(
+        f"{wp}/wp-json/wp/v2/media",
+        auth=auth,
+        params={"search": need, "per_page": 80, "orderby": "date", "order": "desc"},
+        timeout=30,
+    )
+    r.raise_for_status()
+    hid = int(hero_id)
+    best: Optional[int] = None
+    best_dt = ""
+    for item in r.json():
+        if int(item["id"]) == hid:
+            continue
+        tit = (item.get("title") or {}).get("raw") or (item.get("title") or {}).get("rendered") or ""
+        tit = tit.strip()
+        if tit.lower() == need.lower():
+            dt = (item.get("date") or "").strip()
+            if dt >= best_dt:
+                best_dt = dt
+                best = int(item["id"])
+    return best
+
+
 def resolve_social_id(wp: str, auth, post_id: int, hero_id: int) -> Optional[int]:
     aioseo = requests.get(
         f"{wp}/wp-json/aioseo/v1/post?postId={post_id}",
@@ -1075,6 +1243,9 @@ def resolve_social_id(wp: str, auth, post_id: int, hero_id: int) -> Optional[int
     ).json()
     og = aioseo.get("data", {}).get("currentPost", {}).get("og_image_custom_url") or ""
     if not og:
+        return None
+    base = _basename_media_path(og)
+    if re.search(r"-hero\.(jpe?g|png|webp)$", base, re.I):
         return None
     m = re.search(r"/([^/]+)\.(?:jpg|jpeg|png|webp)(?:\?|$)", og, re.I)
     slug = m.group(1) if m else None
@@ -1087,6 +1258,9 @@ def resolve_social_id(wp: str, auth, post_id: int, hero_id: int) -> Optional[int
         )
         r.raise_for_status()
         for item in r.json():
+            tit = (item.get("title") or {}).get("raw") or (item.get("title") or {}).get("rendered") or ""
+            if tit.lower().endswith("-hero"):
+                continue
             su = item.get("source_url") or ""
             if slug in su or slug.replace("-1", "") in su:
                 if item["id"] != hero_id:
@@ -1427,7 +1601,14 @@ def verify_post(
     )
 
     s_alt = soc.get("alt_text") or ""
-    chk("Social alt matches hero", s_alt == h_alt)
+    if site.get("key") == "cd":
+        chk(
+            "Social alt describes the photo (not the post title)",
+            len(s_alt) > 8 and _norm_title_text(s_alt) != _norm_title_text(raw_title),
+            f'"{s_alt[:70]}"',
+        )
+    else:
+        chk("Social alt matches hero", s_alt == h_alt)
 
     s_cap = _cap_raw(soc)
     if critical_rules:
@@ -1448,6 +1629,16 @@ def verify_post(
     og_ok = bool(og or og_cd)
     og_note = (og or og_cd)[-50:] if og_ok else "missing"
     chk("Social set as OG image (AIOSEO / cd-seo)", og_ok, og_note)
+    s_url = (soc.get("source_url") or "").strip()
+    if site.get("key") == "cd" and s_url:
+        og_pick = og or og_cd
+        og_b = _normalize_wp_media_basename(og_pick)
+        soc_b = _normalize_wp_media_basename(s_url)
+        chk(
+            "OG / custom image URL basename is the social JPEG (not hero)",
+            bool(og_pick) and og_b == soc_b and "-social" in og_b and "-hero" not in og_b,
+            f"{og_b!r} vs {soc_b!r}",
+        )
     if site.get("key") == "cd":
         og_type = (curp.get("og_image_type") or "").strip().lower()
         chk(
@@ -1638,7 +1829,44 @@ def remediate_latest_cd_draft() -> dict:
         topic_slug=slug,
     )
 
-    sid = resolve_social_id(wp, auth, post_id, hero_id)
+    actions: List[str] = []
+
+    marker = "<!--scoutmonkeys-machine-tail-->"
+    raw_content = (post.get("content") or {}).get("raw") or ""
+    if marker in raw_content:
+        pre_body, tail_part = raw_content.split(marker, 1)
+        tail_suffix = marker + tail_part
+    else:
+        pre_body = raw_content
+        tail_suffix = ""
+    pre2 = normalize_cd_body_support_links_for_dofollow(site, pre_body)
+    pre2 = cd_reupload_inline_body_images(
+        site,
+        pre2,
+        topic_slug=slug,
+        post_title=raw_title,
+        hero_src_to_skip=hero_url,
+    )
+    pre2 = cd_format_body_inline_images(pre2, post_title=raw_title)
+    pre2 = normalize_cd_body_vertical_spacing(pre2)
+    new_content = pre2.rstrip() + (("\n\n" + tail_suffix) if tail_suffix else "")
+    if new_content != raw_content:
+        rub = requests.post(
+            f"{wp}/wp-json/wp/v2/posts/{post_id}",
+            auth=auth,
+            json={"content": new_content},
+            timeout=120,
+        )
+        rub.raise_for_status()
+        actions.append("post body: CD-*-insert-* uploads, centered figures, single blank lines")
+        raw_content = new_content
+        post = requests.get(
+            f"{wp}/wp-json/wp/v2/posts/{post_id}?context=edit",
+            auth=auth,
+            timeout=30,
+        ).json()
+
+    sid = find_social_attachment_by_title(site, slug, hero_id)
     regen_social = False
     if not sid:
         regen_social = True
@@ -1653,7 +1881,6 @@ def remediate_latest_cd_draft() -> dict:
         if sw != site["social_w"] or sh != site["social_h"]:
             regen_social = True
 
-    actions: List[str] = []
     cat_id = resolve_check_this_out_category(site)
     rp = requests.post(
         f"{wp}/wp-json/wp/v2/posts/{post_id}",
@@ -1695,6 +1922,17 @@ def remediate_latest_cd_draft() -> dict:
     if not social_url:
         raise RuntimeError("Could not resolve social image URL for AIOSEO.")
 
+    r_alt = requests.post(
+        f"{wp}/wp-json/wp/v2/media/{int(sid)}",
+        auth=auth,
+        json={"alt_text": alt},
+        timeout=60,
+    )
+    if r_alt.ok:
+        actions.append("social media alt_text (photo description, not title)")
+    else:
+        print(f"[warn] social alt_text PATCH {r_alt.status_code}: {r_alt.text[:200]}")
+
     seo_r = requests.get(
         f"{wp}/wp-json/cd-seo/v1/read?post_id={post_id}",
         auth=auth,
@@ -1707,7 +1945,6 @@ def remediate_latest_cd_draft() -> dict:
     except Exception:
         kw = ""
     focus = compact_focus_keyword((kw or slug.replace("-", " ")).strip(), max_words=2, max_len=36)
-    raw_content = (post.get("content") or {}).get("raw") or ""
     raw_plain = BeautifulSoup(raw_content, "html.parser").get_text(" ", strip=True)
     meta_raw = (seo_r.get("aioseo_db") or {}).get("description") or ""
     meta = ensure_meta_description_length(meta_raw or raw_title, raw_plain)
@@ -1883,7 +2120,14 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     body = canonicalize_body_http_links_cd(site, body)
     body = normalize_cd_body_support_links_for_dofollow(site, body)
     if site["key"] == "cd":
-        body = cd_format_body_inline_images(body)
+        body = cd_reupload_inline_body_images(
+            site,
+            body,
+            topic_slug=topic,
+            post_title=title,
+            hero_src_to_skip=(client_src or "").strip(),
+        )
+        body = cd_format_body_inline_images(body, post_title=title)
         body = normalize_cd_body_vertical_spacing(body)
     if cr and site["key"] == "cd":
         focus = refine_focus_keyword_for_content(
@@ -2011,9 +2255,7 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         seo_title_max=(60 if site["key"] == "cd" else (500 if cr else None)),
     )
 
-    sid = resolve_social_id(site["wp_url"], (site["wp_user"], site["wp_pass"]), post_id, hero_id)
-    if not sid:
-        sid = social_id
+    sid = int(social_id)
 
     print(f"[9b] Running verify_post…")
     qa_ok = verify_post(

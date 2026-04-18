@@ -16,7 +16,7 @@ This repository powers the **Scoutmonkeys** publishing dashboard and CLI pipelin
   Optional site: `dcr` (requires `DCR_*` env vars and compatible SEO endpoints).
 - **Repair latest CD draft (CRITICAL rules):**  
   `python pipeline.py remediate-latest cd`  
-  Loads `REPO_ROOT/.env` if needed, then forces **Check This Out**, compacts the focus keyphrase, aligns SEO title to the post title, sets OG from the social URL, and re-uploads the social JPEG at **1920×1400** when the current social attachment is missing or the wrong size. Exits non-zero if `verify_post` still fails (e.g. body link shape).
+  Loads `REPO_ROOT/.env` if needed, then forces **Check This Out**, compacts the focus keyphrase, aligns SEO title to the post title, normalizes the article body (single blank lines, **`CD-{topic}-insert-*`** inline media uploads, centered figures), patches **social** attachment **alt_text**, resolves **`CD-{topic}-social`** for **AIOSEO / cd-seo** OG (not the hero), and re-uploads the social JPEG at **1920×1400** when that attachment is missing or the wrong size. Exits non-zero if `verify_post` still fails (e.g. body link shape).
 - **Web dashboard:** `gunicorn app:app` (Railway sets `PORT`; use `Procfile` locally or on deploy).
 - **Doc intake parse (batch):**  
   `python doc_parser.py --batch data/training_docs.txt --out data/training_parse_report.json`  
@@ -90,7 +90,8 @@ Optional: `AUDIT_MAX_POSTS=500` for a faster sample run.
 
 - **Prefixes:** `CD-…` vs `DCR-…` for attachment titles (`{prefix}-{topic}-hero|social|insert-N`).
 - **Cultural Daily hero:** **975 × 250** (≈ **3.9 : 1**). Featured image must be this hero.
-- **Cultural Daily social / OG:** **1920 × 1400** target; set via **AIOSEO** + **`cd-seo`** (not as `featured_media`).
+- **Cultural Daily social / OG:** **1920 × 1400** target; set via **AIOSEO** + **`cd-seo`** (not as `featured_media`). The **custom / checkmarked** OG image in AIOSEO must be the **`CD-{topic}-social`** attachment URL (never the hero).
+- **Large uploads (`big_image_size_threshold`):** WordPress may downscale “big” JPEGs on ingest (hosts sometimes cap around **1481×1080** even when the pipeline uploads **1920×1400** bytes). That is a **server** setting, not something `pipeline.py` can override. **Permanent fix:** Todd (or hosting) should raise or disable the threshold in **`wp-config.php`**, e.g. `define('BIG_IMAGE_SIZE_THRESHOLD', 9999);` (or the supported filter / constant pattern your WP version documents — goal: stop automatic downscaling of social JPEGs). Until then, QA may show stored social dimensions below **1920×1400** while filenames and OG selection remain correct.
 - **DCR defaults** (override with `DCR_HERO_W`, etc.): hero **1200 × 675**, social **1200 × 630** unless your theme/plugin contract differs.
 - **Title caps:** CD post + SEO titles **60** chars; DCR **65** (see `QA.md`).
 - **Resizing:** Prefer `math.ceil` / max guards when implementing custom crops so output dimensions never land off-by-one (Pillow `ImageOps.fit` is acceptable when it yields exact targets).
@@ -118,7 +119,7 @@ Optional: `AUDIT_MAX_POSTS=500` for a faster sample run.
 
 - Search via Pexels API; pick a candidate whose aspect ratio best matches the site hero ratio (wide banner for CD). If the first query returns nothing usable, the pipeline **retries with broader fallback queries** until a hero is resolved (or fails loudly if Pexels is empty / `PEXELS_API_KEY` missing).
 - Hero + social JPEGs are generated from the **same** source frame (social is a separate crop).
-- Captions / alts: `Photo: {Photographer} via Pexels` with descriptive alt text (not keyword stuffing). **Hero and social alt text must match.**
+- Captions / alts: `Photo: {Photographer} via Pexels` with descriptive alt text (not keyword stuffing). **Hero and social** use the same descriptive alt string from the pipeline when both are generated together; **never** use the article title as image alt text.
 
 ## WordPress
 
