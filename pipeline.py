@@ -15,11 +15,13 @@ import re
 import sys
 import textwrap
 import time
+import unicodedata
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Comment
 from PIL import Image, ImageOps
 
 import doc_parser
@@ -271,7 +273,7 @@ def _default_plan_system(site: dict) -> str:
             + textwrap.dedent(
                 """
                 AUDIT CONFORMITY (Cultural Daily): When `data/our_friends_audit.json` exists, it is the
-                empirical corpus of Our Friends posts (see CRITICAL_RULES.md §12). Do not invent novel
+                empirical corpus of Our Friends posts (see CRITICAL_RULES.md §13). Do not invent novel
                 HTML layout patterns, wrapper elements, or content blocks that have no precedent in that
                 audit. Prefer minimal transforms of the supplied Google Doc HTML.
                 """
@@ -303,7 +305,9 @@ def plan_from_gdoc_html(
                 When CRITICAL_RULES applies to this run (this message includes the file above):
                 - post_title MUST match MACHINE_EXTRACTED_H1 exactly (character-for-character).
                 - article_body_html MUST preserve source wording. No paraphrase, summary, tone rewrite,
-                  or “improvement”. Only minimal HTML structure fixes and wrapping body http(s) links as
+                  or “improvement”. The pipeline compares your article_body_html to the raw Google Doc body;
+                  if you invent or rewrite prose, your body is discarded and the Doc HTML is used instead.
+                  Prefer echoing the Doc's tags; only wrap body http(s) links as
                   <a href="URL" target="_blank"><strong>exact anchor text</strong></a> without changing words.
                 - Do NOT alter donation text — the pipeline appends the canonical donation block; never invent or rewrite it.
                 - focus_keyword: at most 4 words, compact core subject only (never the full H1); the pipeline may shorten further if content relevance scores low.
@@ -312,9 +316,11 @@ def plan_from_gdoc_html(
                   (no new factual claims).
                 - category_hint must be exactly: Check This Out (never Sponsored).
                 - If MACHINE_CLIENT_IMAGE_SRC is not "(none)", set hero_pexels_query to "" (empty string).
+                - On Cultural Daily, the live WordPress article body is always taken from the Google Doc HTML
+                  export (your article_body_html is compared for fidelity then discarded for publish).
                 - Social image is mandatory: the pipeline always generates and sets OG/social; never omit.
                 - Social output must be exactly 1920×1400 pixels (handled by the pipeline resize — do not suggest other sizes).
-                - AUDIT CONFORMITY (§12): Do not introduce HTML structures or formatting patterns that are
+                - AUDIT CONFORMITY (§13): Do not introduce HTML structures or formatting patterns that are
                   not evidenced in data/our_friends_audit.json (Our Friends corpus). Prefer preserving the
                   Doc's tags; only apply patterns known from that audit + cultural_daily_sponsored_rules.md.
                 """
@@ -375,7 +381,8 @@ def plan_from_gdoc_html(
             "Hard site rule: every body http(s) link is paid dofollow — "
             "<a href=… target=_blank><strong>…</strong></a> with no rel=nofollow. "
             "If CRITICAL_RULES applied, post_title must match MACHINE_EXTRACTED_H1 and hero_pexels_query may be empty when client image exists. "
-            "On Cultural Daily, seo_title must be the first 60 characters of that H1 only."
+            "On Cultural Daily, seo_title must be the first 60 characters of that H1 only. "
+            "article_body_html must not invent sentences absent from the Doc — otherwise it is discarded."
         )
         fix_user = (
             "The text below was meant to be one JSON object but it is invalid JSON (often "
@@ -530,7 +537,7 @@ def audit_conformity_machine_note() -> str:
     return (
         f"MACHINE_AUDIT_CONFORMITY: Canonical audited corpus is {p.as_posix()} "
         f"(Cultural Daily Our Friends, post_count={n}). "
-        "CRITICAL_RULES §12: every formatting pattern, HTML structure, and content element you emit "
+        "CRITICAL_RULES §13: every formatting pattern, HTML structure, and content element you emit "
         "must be something that could appear in that dataset — do not introduce new constructs. "
         "When uncertain, assume the Doc's existing tags are the source of truth and only apply "
         "minimal fixes already used in audited posts (e.g. paid link wrapper shape from rules)."
@@ -901,6 +908,125 @@ def resolve_social_id(wp: str, auth, post_id: int, hero_id: int) -> Optional[int
 def _cap_raw(media: dict) -> str:
     c = media.get("caption") or {}
     return c.get("raw") or c.get("rendered") or ""
+
+
+def extract_google_doc_body_inner_html(ghtml: str) -> str:
+    """
+    Article HTML taken directly from the Google Docs export (no LLM).
+    Drops ``<head>`` and ``body``-level ``script``/``style``; keeps the Doc's body markup as-is.
+    """
+    soup = BeautifulSoup(ghtml or "", "html.parser")
+    head = soup.find("head")
+    if head:
+        head.decompose()
+    body = soup.body
+    if not body:
+        return (ghtml or "").strip()
+    for junk in list(body.find_all(["script", "style"])):
+        junk.decompose()
+    parts: List[str] = []
+    for child in body.children:
+        if isinstance(child, Comment):
+            continue
+        chunk = str(child).strip()
+        if chunk:
+            parts.append(chunk)
+    return "\n".join(parts).strip() or (ghtml or "").strip()
+
+
+def _plain_for_doc_fidelity_compare(html: str) -> str:
+    """Normalize visible text for comparing Doc vs Claude bodies (CRITICAL_RULES #2)."""
+    t = BeautifulSoup(html or "", "html.parser").get_text("\n", strip=False)
+    t = unicodedata.normalize("NFKC", t)
+    for a, b in (
+        ("\u2019", "'"),
+        ("\u2018", "'"),
+        ("\u201c", '"'),
+        ("\u201d", '"'),
+        ("\u2013", "-"),
+        ("\u2014", "-"),
+        ("\xa0", " "),
+    ):
+        t = t.replace(a, b)
+    return re.sub(r"\s+", " ", t).strip().lower()
+
+
+def claude_body_fails_doc_fidelity(doc_body_html: str, claude_article_body_html: str) -> Tuple[bool, str]:
+    """
+    Return (True, reason) if Claude's ``article_body_html`` is not faithful to the Doc export
+    (invented / rewritten prose, missing spans, etc.).
+    """
+    doc_p = _plain_for_doc_fidelity_compare(doc_body_html)
+    cl_p = _plain_for_doc_fidelity_compare(claude_article_body_html)
+    if not cl_p.strip():
+        return True, "empty_claude_body"
+    if not doc_p.strip():
+        return True, "empty_doc_body"
+    cap = 120_000
+    d0, c0 = doc_p[:cap], cl_p[:cap]
+    ratio = SequenceMatcher(None, d0, c0).ratio() if d0 and c0 else 0.0
+    if ratio < 0.9:
+        return True, f"plain_text_ratio_{ratio:.2f}"
+    words = re.findall(r"[a-z0-9'-]+", cl_p)
+    if len(words) >= 8:
+        wn, step = 8, 3
+        for i in range(0, len(words) - wn + 1, step):
+            phrase = " ".join(words[i : i + wn])
+            if len(phrase) < 18:
+                continue
+            if phrase not in doc_p:
+                return True, f"missing_phrase:{phrase[:96]}"
+    return False, ""
+
+
+def canonicalize_body_http_links_cd(site: dict, body_html: str) -> str:
+    """
+    CD sponsored contract: every ``http(s)`` body anchor is dofollow, ``target=_blank``,
+    and wraps anchor text in ``<strong>`` (same shape as ``verify_sponsored_body_links``).
+    Does not change hrefs or anchor wording.
+    """
+    if site.get("key") != "cd" or not (body_html or "").strip():
+        return body_html
+    soup = BeautifulSoup(body_html, "html.parser")
+    changed = False
+    for a in soup.find_all("a"):
+        href = (a.get("href") or "").strip()
+        if not re.match(r"https?://", href, re.I):
+            continue
+        rel = a.get("rel")
+        rel_s = " ".join(rel) if isinstance(rel, list) else (rel or "")
+        if "nofollow" in rel_s.lower():
+            if isinstance(rel, list):
+                parts = [x for x in rel if str(x).lower() != "nofollow"]
+            else:
+                parts = [x for x in str(rel or "").split() if x.lower() != "nofollow"]
+            if parts:
+                a["rel"] = parts
+            elif "rel" in a.attrs:
+                del a["rel"]
+            changed = True
+        if (a.get("target") or "").lower() != "_blank":
+            a["target"] = "_blank"
+            changed = True
+        parent = getattr(a, "parent", None)
+        already_bold = bool(a.find("strong") or a.find("b")) or (
+            parent is not None and getattr(parent, "name", "") in ("strong", "b")
+        )
+        if not already_bold:
+            inner = a.decode_contents()
+            if inner.strip():
+                a.clear()
+                strong = soup.new_tag("strong")
+                frag = BeautifulSoup(inner, "html.parser")
+                container = frag.body if frag.body else frag
+                for child in list(container.children):
+                    if hasattr(child, "extract"):
+                        strong.append(child.extract())
+                    else:
+                        strong.append(child)
+                a.append(strong)
+                changed = True
+    return str(soup) if changed else body_html
 
 
 def _html_before_machine_tail(raw: str) -> str:
@@ -1534,7 +1660,24 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     if not cr:
         seo_title = seo_title[: site["seo_title_max"]]
 
-    body = normalize_cd_body_support_links_for_dofollow(site, body)
+    if cr:
+        doc_inner = extract_google_doc_body_inner_html(ghtml)
+        bad, why = claude_body_fails_doc_fidelity(doc_inner, body)
+        if bad:
+            print(f"[2d] Claude article_body_html failed Doc fidelity ({why}).")
+            manual_flags.append(f"claude_body_failed_fidelity:{why[:180]}")
+        else:
+            print("[2d] Claude article_body_html passed Doc fidelity check.")
+        # Cultural Daily + CRITICAL: WordPress body is always the Doc export (never Claude's HTML).
+        if site["key"] == "cd":
+            body = doc_inner
+            manual_flags.append("article_body_source:google_doc_export_cd_critical")
+        elif bad:
+            body = doc_inner
+        body = canonicalize_body_http_links_cd(site, body)
+        body = normalize_cd_body_support_links_for_dofollow(site, body)
+    else:
+        body = normalize_cd_body_support_links_for_dofollow(site, body)
     if cr and site["key"] == "cd":
         focus = refine_focus_keyword_for_content(
             focus, body=body, doc_html=ghtml, title=title, topic_slug=topic
