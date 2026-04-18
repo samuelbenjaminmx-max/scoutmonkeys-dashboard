@@ -4819,6 +4819,13 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     print("[2a] Article body from Google Doc HTML export (Claude article_body_html ignored).")
     manual_flags.append("article_body_source:google_doc_export")
     body = extract_google_doc_body_inner_html(ghtml)
+    if client_src and site["key"] == "cd":
+        _hero_src_strip = client_src.strip()
+        _bsoup = BeautifulSoup(body, "html.parser")
+        for _img in list(_bsoup.find_all("img")):
+            if (_img.get("src") or "").strip() == _hero_src_strip:
+                _img.decompose()
+        body = str(_bsoup)
     credit_by_src = cd_body_image_credit_hrefs_by_src_key(ghtml) if site["key"] == "cd" else {}
     if site["key"] == "cd":
         try:
