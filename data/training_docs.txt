@@ -44,6 +44,7 @@ https://docs.google.com/document/d/1ZfuNZEKqRiuqzuitqI-fHvXLHcHo3p2oLMwV2WGFhVk/
 https://docs.google.com/document/d/1eqSpmw-7jYO7pf9OWj3mlfBr9pXB3v8qEY3zllRCOQA/edit
 https://docs.google.com/document/d/1jL3hKoei6o3X4d1AHgip82iv8mwJduRSR48e5gs1E3A/edit
 https://docs.google.com/document/d/1k4b3X9HrKtG0qOrhLOZRCWB6aklCQNYZ/edit
+# --- expanded training set (+44 Google Docs) ---
 https://docs.google.com/document/d/12BVqWrQFjAPYZhoR25LqT7vSAmGqXcHYk2Qy03BoKLc/edit
 https://docs.google.com/document/d/13zB3u4C5Tm2ZAujuuGQow7CxgE2BtjB69xeDVfTfScs/edit
 https://docs.google.com/document/d/19pdqp97CFsMQ6SFXdWz-pHKjXX-fIaIAIHeGurpygcY/edit

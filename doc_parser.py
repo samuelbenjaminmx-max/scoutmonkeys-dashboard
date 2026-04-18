@@ -15,6 +15,8 @@ link is a paid dofollow obligation (`CLAUDE.md`).
 Run batch analysis:
 
     python doc_parser.py --batch data/training_docs.txt --out data/training_parse_report.json
+
+The JSON report includes ``contract_flag_counts`` and ``photo_credit_case_counts`` across successful parses (training-set aggregates). ``data/training_parse_report.json`` is gitignored by default.
 """
 from __future__ import annotations
 
@@ -577,11 +579,25 @@ def batch_parse_training_docs(
             err_summary["504_gateway_timeout"] += 1
         else:
             err_summary["other"] += 1
+
+    contract_flag_counts: Counter = Counter()
+    photo_credit_case_counts: Counter = Counter()
+    for row in results:
+        intake = row.get("intake") or {}
+        for f in intake.get("contract_flags") or []:
+            contract_flag_counts[f] += 1
+        for c in intake.get("photo_credits") or []:
+            case = (c.get("case") or "unknown").strip()
+            if case:
+                photo_credit_case_counts[case] += 1
+
     report = {
         "doc_count_requested": len(urls),
         "parsed_ok": len(results),
         "errors": errors,
         "error_summary": dict(err_summary),
+        "contract_flag_counts": dict(contract_flag_counts.most_common()),
+        "photo_credit_case_counts": dict(photo_credit_case_counts.most_common()),
         "results": results,
     }
     out_path.parent.mkdir(parents=True, exist_ok=True)
