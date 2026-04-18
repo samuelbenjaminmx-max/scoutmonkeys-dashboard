@@ -7,6 +7,7 @@ Environment variables are documented in CLAUDE.md. Run:
 """
 from __future__ import annotations
 
+import hashlib
 import html as html_module
 import io
 import json
@@ -23,7 +24,7 @@ from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup, Comment, NavigableString
-from PIL import Image, ImageOps
+from PIL import Image, ImageChops, ImageOps
 
 import doc_parser
 
@@ -44,15 +45,19 @@ TWILIO_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
 TWILIO_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
 TWILIO_FROM = os.environ.get("TWILIO_WHATSAPP_FROM", "")
 WA_TO = os.environ.get("WHATSAPP_TO")
-WA_PHONE = os.environ.get("WHATSAPP_PHONE", "+5215549571586")
+WA_PHONE = os.environ.get("WHATSAPP_PHONE", "")
 
-OUR_FRIENDS_AUTHOR_ID = int(os.environ.get("OUR_FRIENDS_AUTHOR_ID", "19"))
+try:
+    OUR_FRIENDS_AUTHOR_ID = int(os.environ.get("OUR_FRIENDS_AUTHOR_ID", "19"))
+except (ValueError, TypeError):
+    OUR_FRIENDS_AUTHOR_ID = 19
 
 
 def _refresh_runtime_env_from_os() -> None:
     """Re-read env-backed module globals (needed after `_apply_repo_dotenv_for_cli()`)."""
     global ANTHROPIC_KEY, ANTHROPIC_MODEL, PEXELS_KEY
     global TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM, WA_TO, WA_PHONE
+    global OUR_FRIENDS_AUTHOR_ID
     ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
     ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
     PEXELS_KEY = os.environ.get("PEXELS_API_KEY", "")
@@ -60,7 +65,11 @@ def _refresh_runtime_env_from_os() -> None:
     TWILIO_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
     TWILIO_FROM = os.environ.get("TWILIO_WHATSAPP_FROM", "")
     WA_TO = os.environ.get("WHATSAPP_TO")
-    WA_PHONE = os.environ.get("WHATSAPP_PHONE", "+5215549571586")
+    WA_PHONE = os.environ.get("WHATSAPP_PHONE", "")
+    try:
+        OUR_FRIENDS_AUTHOR_ID = int(os.environ.get("OUR_FRIENDS_AUTHOR_ID", "19"))
+    except (ValueError, TypeError):
+        OUR_FRIENDS_AUTHOR_ID = 19
 
 
 # ---------------------------------------------------------------------------
@@ -86,6 +95,16 @@ def _site_cd() -> dict:
     }
 
 
+def _safe_int_env(key: str, default: int) -> int:
+    """Read an integer env var with a safe default on parse failure."""
+    raw = os.environ.get(key, "").strip()
+    try:
+        return int(raw) if raw else default
+    except (ValueError, TypeError):
+        print(f"[warn] {key}={raw!r} is not a valid integer — using default {default}")
+        return default
+
+
 def _site_dcr() -> dict:
     return {
         "key": "dcr",
@@ -94,13 +113,13 @@ def _site_dcr() -> dict:
         "wp_url": os.environ.get("DCR_WP_URL", "").rstrip("/"),
         "wp_user": os.environ.get("DCR_WP_USER", ""),
         "wp_pass": os.environ.get("DCR_WP_PASS", ""),
-        "hero_w": int(os.environ.get("DCR_HERO_W", "1200")),
-        "hero_h": int(os.environ.get("DCR_HERO_H", "675")),
-        "social_w": int(os.environ.get("DCR_SOCIAL_W", "1200")),
-        "social_h": int(os.environ.get("DCR_SOCIAL_H", "630")),
+        "hero_w": _safe_int_env("DCR_HERO_W", 1200),
+        "hero_h": _safe_int_env("DCR_HERO_H", 675),
+        "social_w": _safe_int_env("DCR_SOCIAL_W", 1200),
+        "social_h": _safe_int_env("DCR_SOCIAL_H", 630),
         "title_max": 65,
         "seo_title_max": 65,
-        "author_id": int(os.environ.get("DCR_AUTHOR_ID", "1")),
+        "author_id": _safe_int_env("DCR_AUTHOR_ID", 1),
     }
 
 
@@ -216,7 +235,12 @@ def _anthropic_messages(system: str, user: str, *, temperature: float = 0.2) -> 
         if not r.ok:
             raise RuntimeError(f"Anthropic API error {r.status_code}: {r.text[:800]}")
         data = r.json()
-        return data["content"][0]["text"]
+        content = data.get("content")
+        if not content or not isinstance(content, list) or not content[0].get("text"):
+            raise RuntimeError(
+                f"Anthropic response missing content[0].text — got: {str(data)[:400]}"
+            )
+        return content[0]["text"]
     raise RuntimeError("Anthropic API error 429 after retries")
 
 
@@ -477,9 +501,14 @@ def _pexels_pick_hero(photos: List[dict], target_ratio: float) -> dict:
 
 
 def _download_image(url: str) -> Image.Image:
+    if not url:
+        raise ValueError("_download_image called with empty URL")
     r = requests.get(url, timeout=120)
     r.raise_for_status()
-    return Image.open(io.BytesIO(r.content)).convert("RGB")
+    try:
+        return Image.open(io.BytesIO(r.content)).convert("RGB")
+    except Exception as exc:
+        raise ValueError(f"Could not open downloaded image from {url!r}: {exc}") from exc
 
 
 def _resize_cover_exact_floor(img: Image.Image, tw: int, th: int) -> Image.Image:
@@ -497,6 +526,10 @@ def _resize_cover_exact_floor(img: Image.Image, tw: int, th: int) -> Image.Image
 def build_resized_pair(site: dict, hero_photo: dict) -> Tuple[Image.Image, Image.Image]:
     src = hero_photo.get("src") or {}
     url = src.get("original") or src.get("large2x") or src.get("large")
+    if not url:
+        raise RuntimeError(
+            "Pexels photo has no usable image URL (src.original / src.large2x / src.large all missing)"
+        )
     img = _download_image(url)
     hero = _resize_cover_exact_floor(img, site["hero_w"], site["hero_h"])
     social = _resize_cover_exact_floor(img, site["social_w"], site["social_h"])
@@ -592,8 +625,191 @@ def planner_client_image_src_excerpt_for_llm(src: Optional[str]) -> str:
 
 
 def _url_key(u: str) -> str:
-    u = (u or "").strip().split("?", 1)[0].strip().lower()
-    return u.rstrip("/")
+    """
+    Normalize URL for dedupe. Strip query for normal static files; **keep full URL** for
+    ``imrs.php``-style resizers where the query selects a different image.
+    """
+    raw = (u or "").strip()
+    if not raw:
+        return ""
+    low = raw.lower().split("#", 1)[0]
+    try:
+        path = (urlparse(low).path or "").lower().rstrip("/")
+    except Exception:
+        path = ""
+    if path.endswith("imrs.php"):
+        return low
+    return low.split("?", 1)[0].rstrip("/")
+
+
+def _cd_pil_fingerprint_bytes(pil: Image.Image) -> bytes:
+    """Small RGB downscale fingerprint for duplicate image detection."""
+    im = pil.convert("RGB").resize((96, 96), Image.Resampling.LANCZOS)
+    return im.tobytes()
+
+
+def _cd_pils_visually_same(a: Image.Image, b: Image.Image) -> bool:
+    """True when two images match after normalization (handles re-encode / resize drift)."""
+    if _cd_pil_fingerprint_bytes(a) == _cd_pil_fingerprint_bytes(b):
+        return True
+    a0 = a.convert("RGB").resize((64, 64), Image.Resampling.LANCZOS)
+    b0 = b.convert("RGB").resize((64, 64), Image.Resampling.LANCZOS)
+    diff = ImageChops.difference(a0, b0)
+    ext = diff.getextrema()
+    # Per-channel max channel diff; allow mild JPEG drift.
+    return all(hi <= 14 for _lo, hi in ext)
+
+
+def cd_strip_body_images_visually_matching_client_hero(body_html: str, client_src: str) -> str:
+    """
+    Remove any body ``<img>`` whose pixels match the **client hero** (same file pasted under a
+    different ``src`` — e.g. ``data:…`` hero vs ``https://…`` duplicate in the Doc export).
+    """
+    if not (body_html or "").strip() or not (client_src or "").strip():
+        return body_html
+    try:
+        hero_pil = _pil_image_from_src(client_src).convert("RGB")
+    except Exception as e:
+        print(f"[warn] client hero fingerprint skipped (cannot decode hero): {e}")
+        return body_html
+    soup = BeautifulSoup(body_html, "html.parser")
+    changed = False
+    checked = 0
+    for img in list(soup.find_all("img")):
+        src = (img.get("src") or "").strip()
+        if not src or src.startswith("blob:"):
+            continue
+        if not src.lower().startswith(("http://", "https://", "data:")):
+            continue
+        checked += 1
+        if checked > 40:
+            break
+        try:
+            pil = _pil_image_from_src(src).convert("RGB")
+        except Exception:
+            continue
+        if _cd_pils_visually_same(hero_pil, pil):
+            _cd_remove_img_and_collapsing_empties(img)
+            changed = True
+    if changed:
+        print(
+            "[2c] CD body: removed 1+ inline <img> row(s) that matched the client hero pixels "
+            "(hero is featured/social only — not duplicated in the article HTML)."
+        )
+    return str(soup) if changed else body_html
+
+
+def cd_extract_client_hero_credit_page_url(ghtml: str) -> Optional[str]:
+    """
+    First Doc image (same selection order as :func:`first_client_image_src_from_gdoc`) —
+    return a wrapping ``<a href=\"https…\">`` URL when Google links the hero to a source page.
+    """
+    soup = BeautifulSoup(ghtml, "html.parser")
+    for img in soup.find_all("img"):
+        s = (img.get("src") or "").strip()
+        if not s or s.startswith("blob:"):
+            continue
+        if not s.startswith(("http://", "https://", "data:")):
+            continue
+        el = img.parent
+        for _ in range(4):
+            if el is None:
+                break
+            if getattr(el, "name", "") == "a":
+                href = (el.get("href") or "").strip()
+                if href.lower().startswith(("http://", "https://")):
+                    return html_module.unescape(href)
+            el = el.parent
+    return None
+
+
+def cd_fetch_credit_page_rights_and_title(page_url: str) -> Tuple[bool, str]:
+    """
+    Single GET of the client hero's linked credit page. Returns ``(is_public_domain, title_snippet)``.
+    ``is_public_domain`` is True only on strong HTML signals (CC0 deed, Wikimedia PD templates,
+    NASA PD, etc.); otherwise operators get **no** auto caption (cannot guarantee rights).
+    """
+    u = (page_url or "").strip()
+    if not u.lower().startswith("http"):
+        return False, ""
+    try:
+        r = requests.get(
+            u,
+            timeout=20,
+            headers={"User-Agent": "ScoutmonkeysPipeline/1.0 (rights check; contact publisher)"},
+        )
+        r.raise_for_status()
+        raw = r.text or ""
+        blob = raw[:500_000].lower()
+    except Exception:
+        return False, ""
+    m = re.search(r"<title[^>]*>([^<]{4,200})</title>", raw, re.I)
+    title_snip = ""
+    if m:
+        title_snip = html_module.unescape(re.sub(r"\s+", " ", m.group(1)).strip())[:120]
+    if "all rights reserved" in blob and "public domain" not in blob[:8000]:
+        return False, title_snip
+    if "creativecommons.org/publicdomain/zero" in blob:
+        return True, title_snip
+    if "creativecommons.org/licenses/zero" in blob:
+        return True, title_snip
+    if "cc0 1.0 universal" in blob or "cc0-1.0" in blob:
+        return True, title_snip
+    if "this file is in the public domain" in blob or "this image is in the public domain" in blob:
+        return True, title_snip
+    if "no known copyright restrictions" in blob:
+        return True, title_snip
+    if "public domain mark" in blob or "pdm 1.0" in blob:
+        return True, title_snip
+    if "united states government work" in blob:
+        return True, title_snip
+    if "nasa.gov" in u.lower() and "public domain" in blob:
+        return True, title_snip
+    return False, title_snip
+
+
+_CD_KNOWN_STOCK_ALT_HINTS: Tuple[Tuple[str, str], ...] = (
+    ("rain-man", "Tom Cruise and Dustin Hoffman in Rain Man"),
+    ("rain_man", "Tom Cruise and Dustin Hoffman in Rain Man"),
+    ("pubg", "PUBG Mobile gameplay on a smartphone"),
+    ("pubg_mobile", "PUBG Mobile gameplay on a smartphone"),
+)
+
+
+def _cd_infer_alt_from_image_url(src_url: str) -> str:
+    """
+    When Google exports empty ``alt``, derive a short editorial description from the URL path
+    (and a tiny allowlist for common promo stills). This replaces generic ``Inline photograph N``.
+    """
+    if not (src_url or "").strip():
+        return ""
+    u = html_module.unescape((src_url or "").strip())
+    try:
+        path = (urlparse(u).path or "").lower()
+        fn = path.rsplit("/", 1)[-1].lower()
+    except Exception:
+        return ""
+    hay = f"{path}/{fn}"
+    for needle, alt in _CD_KNOWN_STOCK_ALT_HINTS:
+        if needle in hay:
+            return alt
+    stem = re.sub(r"\.(jpe?g|png|webp|gif)$", "", fn, flags=re.I)
+    stem = re.sub(r"-\d+x\d+$", "", stem, flags=re.I)
+    raw_words = re.split(r"[\s_\-+]+", stem)
+    words: List[str] = []
+    for w in raw_words:
+        w = w.strip().lower()
+        if len(w) < 3 or w in _CD_FOCUS_STOPWORDS:
+            continue
+        if w.isdigit():
+            continue
+        words.append(w)
+    if not words:
+        return ""
+    phrase = " ".join(words[:8]).strip()
+    if len(phrase) < 8:
+        return ""
+    return phrase[0].upper() + phrase[1:] if phrase else ""
 
 
 def remove_client_hero_image_from_body_html(body_html: str, client_src: str) -> str:
@@ -620,16 +836,21 @@ def _norm_title_text(t: str) -> str:
 
 
 def _cd_inline_alt_for_img(
-    alt_raw: str, post_title: str, *, slot: Optional[int] = None
+    alt_raw: str,
+    post_title: str,
+    *,
+    slot: Optional[int] = None,
+    src_url: str = "",
 ) -> str:
-    """Inline ``alt``: short photo description — never the article title."""
+    """Inline ``alt``: short, editorial photo description — never the article title."""
     tnorm = _norm_title_text(post_title)
     pa = unicodedata.normalize("NFKC", (alt_raw or "").strip())
     if pa and _norm_title_text(pa) != tnorm and 8 <= len(pa) <= 180:
         return pa[:180]
-    if slot is not None:
-        return f"Inline photograph {slot} for this sponsored article"
-    return "Photograph supporting this sponsored article"
+    from_url = _cd_infer_alt_from_image_url((src_url or "").strip())
+    if from_url:
+        return from_url[:180]
+    return "Photograph illustrating this sponsored article"
 
 
 def _merge_css_style(prev: Optional[str], add: str) -> str:
@@ -1331,19 +1552,32 @@ def hero_social_alt_for_cd(
 
 def _pil_image_from_src(src: str) -> Image.Image:
     src = (src or "").strip()
+    if not src:
+        raise ValueError("Image source URL/data is empty")
     if src.startswith("data:"):
         import base64
 
+        if "," not in src:
+            raise ValueError("Malformed data URI — missing comma separator")
         _, b64 = src.split(",", 1)
-        raw = base64.b64decode(b64)
-        return Image.open(io.BytesIO(raw)).convert("RGB")
+        try:
+            raw = base64.b64decode(b64, validate=False)
+        except Exception as exc:
+            raise ValueError(f"Could not base64-decode data URI: {exc}") from exc
+        try:
+            return Image.open(io.BytesIO(raw)).convert("RGB")
+        except Exception as exc:
+            raise ValueError(f"Could not open image from data URI: {exc}") from exc
     r = requests.get(
         src,
         timeout=120,
         headers={"User-Agent": "ScoutmonkeysPipeline/1.0"},
     )
     r.raise_for_status()
-    return Image.open(io.BytesIO(r.content)).convert("RGB")
+    try:
+        return Image.open(io.BytesIO(r.content)).convert("RGB")
+    except Exception as exc:
+        raise ValueError(f"Could not open image from URL {src!r}: {exc}") from exc
 
 
 def build_resized_pair_from_pil(site: dict, img: Image.Image) -> Tuple[Image.Image, Image.Image]:
@@ -1352,10 +1586,26 @@ def build_resized_pair_from_pil(site: dict, img: Image.Image) -> Tuple[Image.Ima
     return hero, social
 
 
-def attempt_image_provenance(img: Image.Image) -> Tuple[Optional[str], str, List[str]]:
-    """CRITICAL_RULES §4 — hook for reverse search / EXIF metadata."""
+def attempt_image_provenance(
+    img: Image.Image,
+    *,
+    credit_source_page_url: Optional[str] = None,
+) -> Tuple[Optional[str], str, List[str]]:
+    """
+    CRITICAL_RULES §4 — caption/citation source for the client hero.
+
+    When the Doc wraps the hero in a hyperlink, we GET that page once. Only if HTML **clearly**
+    indicates public domain / CC0 / no known copyright do we attach a ``Photo:`` citation;
+    otherwise return empty strings so captions stay blank (cannot guarantee rights).
+    """
     _ = img
-    # No URL and empty label → blank captions / no placeholder (CRITICAL_RULES).
+    cu = (credit_source_page_url or "").strip()
+    if cu.lower().startswith("http"):
+        ok, title_snip = cd_fetch_credit_page_rights_and_title(cu)
+        if ok:
+            label = (title_snip or "Public domain photograph").strip()
+            return cu, label, []
+        return None, "", ["client_hero_credit_page_rights_not_verified_public_domain"]
     return None, "", ["reverse_image_lookup_not_implemented"]
 
 
@@ -2287,11 +2537,12 @@ def find_social_attachment_by_title(site: dict, topic_slug: str, hero_id: int) -
 
 
 def resolve_social_id(wp: str, auth, post_id: int, hero_id: int) -> Optional[int]:
-    aioseo = requests.get(
+    _raio = requests.get(
         f"{wp}/wp-json/aioseo/v1/post?postId={post_id}",
         auth=auth,
         timeout=30,
-    ).json()
+    )
+    aioseo = _raio.json() if _raio.ok else {}
     og = aioseo.get("data", {}).get("currentPost", {}).get("og_image_custom_url") or ""
     if not og:
         return None
@@ -2517,19 +2768,30 @@ def verify_post(
     wp, auth = wp_auth(site)
     prefix = site["prefix"]
 
-    post = requests.get(
+    _rpost = requests.get(
         f"{wp}/wp-json/wp/v2/posts/{post_id}?context=edit", auth=auth, timeout=30
-    ).json()
-    hero = requests.get(
+    )
+    _rpost.raise_for_status()
+    post = _rpost.json()
+    _rhero = requests.get(
         f"{wp}/wp-json/wp/v2/media/{hero_id}?context=edit", auth=auth, timeout=30
-    ).json()
-    soc = requests.get(
+    )
+    _rhero.raise_for_status()
+    hero = _rhero.json()
+    _rsoc = requests.get(
         f"{wp}/wp-json/wp/v2/media/{social_id}?context=edit", auth=auth, timeout=30
-    ).json()
-    seo_r = requests.get(
+    )
+    _rsoc.raise_for_status()
+    soc = _rsoc.json()
+    _rseo = requests.get(
         f"{wp}/wp-json/cd-seo/v1/read?post_id={post_id}", auth=auth, timeout=30
-    ).json()
-    c = post["content"]["raw"]
+    )
+    if not _rseo.ok:
+        print(f"[QA] ⚠ cd-seo endpoint returned {_rseo.status_code} — SEO checks will be skipped")
+        seo_r: dict = {}
+    else:
+        seo_r = _rseo.json()
+    c = (post.get("content") or {}).get("raw") or ""
     pre_tail = _html_before_machine_tail(c)
     sponsored_links_ok, sponsored_note = verify_sponsored_body_links(pre_tail)
 
@@ -2540,7 +2802,7 @@ def verify_post(
         print(f"  {icon} {label}" + (f"  [{note}]" if note else ""))
         checks.append((label, ok))
 
-    raw_title = post["title"]["raw"]
+    raw_title = (post.get("title") or {}).get("raw") or (post.get("title") or {}).get("rendered") or ""
     if expect_exact_title:
         chk(
             "Post title matches extracted H1 (CRITICAL_RULES)",
@@ -2680,9 +2942,12 @@ def verify_post(
     else:
         chk("Social caption starts 'Photo:'", s_cap.startswith("Photo:"), f'"{s_cap}"')
 
-    aioseo_post = requests.get(
+    _raioseo = requests.get(
         f"{wp}/wp-json/aioseo/v1/post?postId={post_id}", auth=auth, timeout=30
-    ).json()
+    )
+    aioseo_post = _raioseo.json() if _raioseo.ok else {}
+    if not _raioseo.ok:
+        print(f"[QA] ⚠ aioseo/v1/post returned {_raioseo.status_code} — OG checks may be incomplete")
     curp = (aioseo_post.get("data") or {}).get("currentPost") or {}
     og = curp.get("og_image_custom_url") or ""
     og_cd = (seo_r.get("aioseo_db") or {}).get("og_image_url") or ""
@@ -2812,7 +3077,11 @@ def verify_post(
 
 
 def _apply_repo_dotenv_for_cli() -> None:
-    """Load `REPO_ROOT/.env` into os.environ (used by `run()`, remediate CLI, and local `python pipeline.py` runs)."""
+    """Load `REPO_ROOT/.env` into os.environ, but only for keys not already set.
+
+    Already-set keys (e.g. Railway / system environment) always win over the local .env file.
+    This prevents overwriting production credentials when running locally.
+    """
     p = REPO_ROOT / ".env"
     if not p.is_file():
         return
@@ -2828,7 +3097,8 @@ def _apply_repo_dotenv_for_cli() -> None:
         k, v = k.strip(), v.strip()
         if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
             v = v[1:-1]
-        os.environ[k] = v
+        if k not in os.environ:
+            os.environ[k] = v
 
 
 def _parse_topic_slug_from_attachment_title(title: str, prefix: str) -> str:
@@ -2895,11 +3165,13 @@ def remediate_latest_cd_draft() -> dict:
     if not hero_id:
         raise RuntimeError(f"Post {post_id} has no featured_media — cannot remediate images/SEO.")
 
-    hero = requests.get(
+    _rhero_r = requests.get(
         f"{wp}/wp-json/wp/v2/media/{hero_id}?context=edit",
         auth=auth,
         timeout=30,
-    ).json()
+    )
+    _rhero_r.raise_for_status()
+    hero = _rhero_r.json()
     hero_url = (hero.get("source_url") or "").strip()
     if not hero_url:
         raise RuntimeError("Featured image has no source_url")
@@ -2968,22 +3240,26 @@ def remediate_latest_cd_draft() -> dict:
             "post body: pipeline HTML synced (CD-InsertN, dedupe, centered figures, audit format)"
         )
         raw_content = new_content
-        post = requests.get(
+        _rpost2 = requests.get(
             f"{wp}/wp-json/wp/v2/posts/{post_id}?context=edit",
             auth=auth,
             timeout=30,
-        ).json()
+        )
+        _rpost2.raise_for_status()
+        post = _rpost2.json()
 
     sid = find_social_attachment_by_title(site, slug, hero_id)
     regen_social = False
     if not sid:
         regen_social = True
     else:
-        soc = requests.get(
+        _rsoc3 = requests.get(
             f"{wp}/wp-json/wp/v2/media/{int(sid)}?context=edit",
             auth=auth,
             timeout=30,
-        ).json()
+        )
+        _rsoc3.raise_for_status()
+        soc = _rsoc3.json()
         sw = int((soc.get("media_details") or {}).get("width") or 0)
         sh = int((soc.get("media_details") or {}).get("height") or 0)
         if sw != site["social_w"] or sh != site["social_h"]:
@@ -3011,7 +3287,11 @@ def remediate_latest_cd_draft() -> dict:
     if regen_social:
         pil = _download_image(hero_url).convert("RGB")
         social_img = _resize_cover_exact_floor(pil, site["social_w"], site["social_h"])
-        assert social_img.size == (site["social_w"], site["social_h"]), social_img.size
+        if social_img.size != (site["social_w"], site["social_h"]):
+            raise RuntimeError(
+                f"Social image resize produced {social_img.size}, "
+                f"expected ({site['social_w']}×{site['social_h']})"
+            )
         cap = _cap_raw(hero)
         if cap and not cap.startswith("Photo:"):
             cap = f"Photo: {cap}" if "pexels" in cap.lower() else ""
@@ -3032,18 +3312,20 @@ def remediate_latest_cd_draft() -> dict:
             timeout=30,
         )
         r_sv.raise_for_status()
-        assert_cd_social_attachment_stored_dimensions(
-            site, r_sv.json(), context="remediate social reupload"
-        )
         sm = r_sv.json()
+        assert_cd_social_attachment_stored_dimensions(
+            site, sm, context="remediate social reupload"
+        )
         social_url = (sm.get("source_url") or "").strip()
         actions.append(f"reuploaded social media id={sid} {site['social_w']}×{site['social_h']}")
     else:
-        soc = requests.get(
+        _rsoc2 = requests.get(
             f"{wp}/wp-json/wp/v2/media/{int(sid)}?context=edit",
             auth=auth,
             timeout=30,
-        ).json()
+        )
+        _rsoc2.raise_for_status()
+        soc = _rsoc2.json()
         assert_cd_social_attachment_stored_dimensions(
             site, soc, context="remediate existing social attachment"
         )
@@ -3063,11 +3345,14 @@ def remediate_latest_cd_draft() -> dict:
     else:
         print(f"[warn] social alt_text PATCH {r_alt.status_code}: {r_alt.text[:200]}")
 
-    seo_r = requests.get(
+    _seo_r2 = requests.get(
         f"{wp}/wp-json/cd-seo/v1/read?post_id={post_id}",
         auth=auth,
         timeout=30,
-    ).json()
+    )
+    seo_r = _seo_r2.json() if _seo_r2.ok else {}
+    if not _seo_r2.ok:
+        print(f"[remediate] ⚠ cd-seo endpoint returned {_seo_r2.status_code} — SEO fields may be stale")
     try:
         kw = json.loads((seo_r.get("aioseo_db") or {}).get("keyphrases") or "{}").get("focus", {}).get(
             "keyphrase", ""
@@ -3139,7 +3424,10 @@ def send_whatsapp(
     if TWILIO_SID == "TWILIO_ACCOUNT_SID" or TWILIO_TOKEN == "TWILIO_AUTH_TOKEN":
         print("[10] ⚠ WhatsApp skipped — Twilio env vars are still Railway placeholders")
         return
-    to = WA_TO or f"whatsapp:{WA_PHONE}"
+    to = WA_TO or (f"whatsapp:{WA_PHONE}" if WA_PHONE else "")
+    if not to:
+        print("[10] ⚠ WhatsApp skipped — WHATSAPP_TO and WHATSAPP_PHONE are both unset")
+        return
     qa_line = ""
     if qa_ok is True:
         qa_line = "\nQA: all checks passed."
@@ -3363,8 +3651,16 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         )
         cap = f"Photo: {p_name} via Pexels"
 
-    assert hero_img.size == (site["hero_w"], site["hero_h"]), hero_img.size
-    assert social_img.size == (site["social_w"], site["social_h"]), social_img.size
+    if hero_img.size != (site["hero_w"], site["hero_h"]):
+        raise RuntimeError(
+            f"Hero image size mismatch: got {hero_img.size}, "
+            f"expected ({site['hero_w']}×{site['hero_h']})"
+        )
+    if social_img.size != (site["social_w"], site["social_h"]):
+        raise RuntimeError(
+            f"Social image size mismatch: got {social_img.size}, "
+            f"expected ({site['social_w']}×{site['social_h']})"
+        )
 
     prefix = site["prefix"]
     slug = topic
@@ -3404,10 +3700,10 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         timeout=30,
     )
     r_sv.raise_for_status()
-    assert_cd_social_attachment_stored_dimensions(
-        site, r_sv.json(), context="pipeline social upload"
-    )
     social_media = r_sv.json()
+    assert_cd_social_attachment_stored_dimensions(
+        site, social_media, context="pipeline social upload"
+    )
     social_url = social_media.get("source_url") or ""
 
     cite_html = (cite or "").strip()

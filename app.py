@@ -2,6 +2,7 @@
 Minimal Scoutmonkeys dashboard: session login + trigger helper for `pipeline.run`.
 """
 import os
+import secrets
 import subprocess
 import sys
 from pathlib import Path
@@ -9,7 +10,16 @@ from pathlib import Path
 from flask import Flask, redirect, render_template_string, request, session, url_for
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "change-me")
+_secret_key = os.environ.get("SECRET_KEY", "")
+if not _secret_key:
+    # Generate a random key so sessions work, but warn — sessions will be
+    # invalidated on every restart until SECRET_KEY is set in the environment.
+    _secret_key = secrets.token_hex(32)
+    print(
+        "[WARN] SECRET_KEY is not set — using a random ephemeral key. "
+        "Set SECRET_KEY in the environment to persist sessions across restarts."
+    )
+app.secret_key = _secret_key
 PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
 
 
