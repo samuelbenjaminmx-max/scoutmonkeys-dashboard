@@ -899,17 +899,34 @@ def cd_deduplicate_inline_body_images(html: str, *, hero_src_to_skip: str = "") 
     """
     Remove duplicate inline images (same normalized URL as an earlier ``<img>``) and any
     body copy of the featured hero URL. Typical Google Docs issue: the same photo pasted twice.
+    Also drops **identical** ``data:`` URIs (Google often exports pasted photos as data URIs).
     First occurrence in document order is kept.
     """
     if not (html or "").strip():
         return html
     soup = BeautifulSoup(html, "html.parser")
-    hero_k = _url_key(hero_src_to_skip) if (hero_src_to_skip or "").strip() else ""
+    hero_raw = (hero_src_to_skip or "").strip()
+    hero_k = _url_key(hero_src_to_skip) if hero_raw and not hero_raw.lower().startswith("data:") else ""
     seen: set[str] = set()
     changed = False
     for img in list(soup.find_all("img")):
         src = (img.get("src") or "").strip()
-        if not src.lower().startswith("http"):
+        if not src:
+            continue
+        low = src.lower()
+        if low.startswith("data:"):
+            if hero_raw and src == hero_raw:
+                _cd_remove_img_and_collapsing_empties(img)
+                changed = True
+                continue
+            dk = f"data:{hashlib.sha256(src.encode('utf-8', errors='ignore')).hexdigest()[:24]}"
+            if dk in seen:
+                _cd_remove_img_and_collapsing_empties(img)
+                changed = True
+                continue
+            seen.add(dk)
+            continue
+        if not low.startswith("http"):
             continue
         k = _url_key(src)
         if hero_k and k == hero_k:
@@ -1723,7 +1740,10 @@ def _cd_pick_focus_keyword_by_score(
     *,
     target: float = 82.0,
 ) -> str:
-    """Prefer the shortest (usually 1-word) candidate that meets ``target``; else best score."""
+    """
+    Among candidates scoring ≥ ``target``, pick the **highest content score** (AIOSEO-style:
+    the phrase that actually matches the article), then fewer words, then stable order.
+    """
     ti = unicodedata.normalize("NFKC", (title or "")).strip()
     seen: set[str] = set()
     uniq: List[str] = []
@@ -1741,10 +1761,23 @@ def _cd_pick_focus_keyword_by_score(
         scored.append((sc, len(k.split()), i, k))
     qual = [t for t in scored if t[0] >= target - 0.001]
     if qual:
-        qual.sort(key=lambda t: (t[1], -t[0], t[2]))
+        qual.sort(key=lambda t: (-t[0], t[1], t[2]))
         return qual[0][3]
     scored.sort(key=lambda t: (-t[0], t[1], t[2]))
     return scored[0][3]
+
+
+_CD_BODY_BOOST_KEYWORDS = (
+    "gambling",
+    "casino",
+    "crypto",
+    "cryptocurrency",
+    "slots",
+    "sports",
+    "betting",
+    "gaming",
+    "wellness",
+)
 
 
 def refine_focus_keyword_for_content(
@@ -1756,12 +1789,19 @@ def refine_focus_keyword_for_content(
     topic_slug: str,
 ) -> str:
     """
-    **1 word from the title when possible** (sometimes 2). Picks the shortest phrase that scores
-    ≥82 against body + doc + title so AIOSEO is not dragged down by a long planner keyphrase.
+    Short **1–2 word** focus keyphrase: title + topic tokens, plus high-signal words that
+    **actually appear in the body** (e.g. ``gambling`` for casino / mobile-wager articles).
+    Chooses the highest **content relevance score** among candidates clearing the CD QA bar.
     """
     hay = f"{body}\n{doc_html}\n{title}"
+    hay_low = hay.lower()
     ti = unicodedata.normalize("NFKC", (title or "")).strip()
     candidates: List[str] = []
+    for w in _CD_BODY_BOOST_KEYWORDS:
+        if len(w) < 4:
+            continue
+        if re.search(rf"\b{re.escape(w)}\b", hay_low):
+            candidates.append(w)
     candidates.extend(cd_title_focus_keyword_candidates(ti))
     base = compact_focus_keyword(focus, max_words=2, max_len=36)
     if not base:
@@ -2312,6 +2352,10 @@ def cd_reupload_inline_body_images(
     Upload each non-hero inline ``<img>`` to WordPress as ``{prefix}-Insert1``, ``{prefix}-Insert2``, …
     (filename + attachment title). Skips URLs already named for that slot (current or legacy
     ``{prefix}-{topic}-insert-{n}`` basename).
+
+    Google Docs often export body images as ``data:`` URIs — those are decoded, deduped, and
+    uploaded the same as ``http(s):`` sources. Any pixel match to **``hero_src_to_skip``** (the
+    client hero) is stripped so the hero never remains duplicated in the article HTML.
     """
     if not (body_html or "").strip():
         return body_html
@@ -2321,11 +2365,23 @@ def cd_reupload_inline_body_images(
     slot = 0
     seen_fp: set[str] = set()
     dup_removed = 0
+    hero_pil_cache: Optional[Image.Image] = None
+    hss = (hero_src_to_skip or "").strip()
+    if hss:
+        try:
+            hero_pil_cache = _pil_image_from_src(hss).convert("RGB")
+        except Exception:
+            hero_pil_cache = None
     for img in soup.find_all("img"):
         src = (img.get("src") or "").strip()
-        if not src.lower().startswith("http"):
+        if not src or src.startswith("blob:"):
             continue
-        if hero_src_to_skip and _urls_loosely_same(src, hero_src_to_skip):
+        low = src.lower()
+        if not (low.startswith("http") or low.startswith("data:")):
+            continue
+        if hss and _urls_loosely_same(src, hss):
+            _cd_remove_img_and_collapsing_empties(img)
+            changed = True
             continue
         try:
             pil = _pil_image_from_src(src).convert("RGB")
@@ -2333,6 +2389,11 @@ def cd_reupload_inline_body_images(
             print(f"[warn] inline image decode skipped ({src[:90]}…): {e}")
             continue
         fp = hashlib.sha256(_cd_pil_fingerprint_bytes(pil)).hexdigest()
+        if hero_pil_cache is not None and _cd_pils_visually_same(hero_pil_cache, pil):
+            _cd_remove_img_and_collapsing_empties(img)
+            changed = True
+            dup_removed += 1
+            continue
         if fp in seen_fp:
             _cd_remove_img_and_collapsing_empties(img)
             changed = True
@@ -2394,8 +2455,8 @@ def cd_reupload_inline_body_images(
             seen_fp.add(fp)
     if dup_removed:
         print(
-            f"[2c] Inline images: removed {dup_removed} duplicate <img> node(s) "
-            f"(same pixels as an earlier body image — Google Doc paste / footnote duplication)."
+            f"[2c] Inline images: removed {dup_removed} <img> node(s) "
+            f"(client hero pixel duplicate and/or same-pixels body duplicate — data: or http)."
         )
     return str(soup) if changed else body_html
 
