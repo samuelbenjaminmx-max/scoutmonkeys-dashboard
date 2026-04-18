@@ -13,6 +13,7 @@ Examples::
   python3 scripts/audit_sponsored_last_year.py
   python3 scripts/audit_sponsored_last_year.py --days 365 --out-json data/sponsored_last_year_audit.json
   python3 scripts/audit_sponsored_last_year.py --after 2025-01-01T00:00:00 --out-md docs/CULTURAL_DAILY_SPONSORED_FORMAT_GUIDE.md
+  python3 scripts/audit_sponsored_last_year.py --days 365 --write-category-allowlist
 
 WordPress REST: paginates ``status=publish`` with ``after=`` ISO8601, filters ``author`` client-side
 (same workaround as ``audit_our_friends_posts.py``).
@@ -22,7 +23,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -34,6 +37,77 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from wp_audit_aggregate import aggregate_rendered_posts  # noqa: E402
+
+
+def cd_sponsor_category_forbidden_audit(slug: str, name: str) -> bool:
+    """Match pipeline ``cd_sponsor_category_forbidden`` (Sponsored / Featured Story)."""
+    slug_l = (slug or "").lower()
+    name_l = (name or "").lower()
+    if slug_l == "sponsored":
+        return True
+    if "featured" in slug_l and "story" in slug_l:
+        return True
+    if re.search(r"featured[-\s_]?story", slug_l):
+        return True
+    if "featured" in name_l and "story" in name_l:
+        return True
+    return False
+
+
+def fetch_category_rows(
+    wp_url: str, auth: Tuple[str, str], ids: List[int]
+) -> Dict[int, Tuple[str, str]]:
+    out: Dict[int, Tuple[str, str]] = {}
+    if not ids:
+        return out
+    chunk = 90
+    for i in range(0, len(ids), chunk):
+        batch = ids[i : i + chunk]
+        r = requests.get(
+            f"{wp_url}/wp-json/wp/v2/categories",
+            auth=auth,
+            params={"include": ",".join(str(x) for x in batch), "per_page": 100},
+            timeout=90,
+        )
+        r.raise_for_status()
+        for row in r.json():
+            rid = int(row["id"])
+            out[rid] = ((row.get("slug") or "").lower(), row.get("name") or "")
+    return out
+
+
+def aggregate_category_assignments(
+    wp_url: str, auth: Tuple[str, str], posts: List[dict]
+) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """
+    Count how often each category id appears on the filtered posts (posts can have multiple categories;
+    each assignment increments the counter). Returns rows for JSON + sorted unique non-forbidden slugs
+    for ``cd_sponsor_category_allowlist.json``.
+    """
+    ctr: Counter = Counter()
+    for p in posts:
+        for cid in p.get("categories") or []:
+            try:
+                ctr[int(cid)] += 1
+            except (TypeError, ValueError):
+                continue
+    if not ctr:
+        return [], []
+    meta = fetch_category_rows(wp_url, auth, sorted(ctr.keys()))
+    rows: List[Dict[str, Any]] = []
+    for cid, cnt in ctr.most_common():
+        slug, name = meta.get(cid, ("", ""))
+        rows.append(
+            {
+                "id": cid,
+                "slug": slug,
+                "name": name,
+                "post_assignments": int(cnt),
+                "cd_sponsor_forbidden": cd_sponsor_category_forbidden_audit(slug, name),
+            }
+        )
+    allow = sorted({r["slug"] for r in rows if r["slug"] and not r["cd_sponsor_forbidden"]})
+    return rows, allow
 
 
 def load_env() -> None:
@@ -61,7 +135,7 @@ def fetch_posts_author_since(
 ) -> List[dict]:
     posts: List[dict] = []
     page = 1
-    fields = "id,date,date_gmt,link,author,content"
+    fields = "id,date,date_gmt,link,author,content,categories"
     while True:
         r = requests.get(
             f"{wp_url}/wp-json/wp/v2/posts",
@@ -127,11 +201,36 @@ def render_format_guide_md(data: Dict[str, Any]) -> str:
         f"- **WP URL:** `{meta.get('wp_url', '?')}`",
         f"- **Author ID (Our Friends):** {meta.get('author_id', '?')}",
         "",
-        "## Empirical aggregates (this window)",
-        "",
-        "| Metric | Value |",
-        "|--------|-------|",
     ]
+    cats = data.get("category_slug_counts") or []
+    if cats:
+        lines.extend(
+            [
+                "## WordPress categories (Our Friends posts in this window)",
+                "",
+                "Each row is one **category id**; `post_assignments` counts posts that include that category. ",
+                "Use this to see real mixes (e.g. Check This Out vs Grey Niche). Automation must **never** use a row marked `cd_sponsor_forbidden`. ",
+                "Regenerate `data/cd_sponsor_category_allowlist.json` with `--write-category-allowlist` after refreshing this audit.",
+                "",
+                "| slug | name | assignments | forbidden for CD sponsor |",
+                "|------|------|-------------:|----------------------------|",
+            ]
+        )
+        for row in cats[:40]:
+            lines.append(
+                f"| `{row.get('slug', '')}` | {row.get('name', '')} | {row.get('post_assignments', 0)} | "
+                f"{'yes' if row.get('cd_sponsor_forbidden') else 'no'} |"
+            )
+        lines.append("")
+
+    lines.extend(
+        [
+            "## Empirical aggregates (this window)",
+            "",
+            "| Metric | Value |",
+            "|--------|-------|",
+        ]
+    )
     for k, v in agg.items():
         lines.append(f"| `{k}` | {v} |")
     lines.extend(
@@ -199,7 +298,8 @@ def render_format_guide_md(data: Dict[str, Any]) -> str:
             "```bash",
             "python3 scripts/audit_sponsored_last_year.py --days 365 \\",
             "  --out-json data/sponsored_last_year_audit.json \\",
-            f"  --out-md {ROOT}/docs/CULTURAL_DAILY_SPONSORED_FORMAT_GUIDE.md",
+            f"  --out-md {ROOT}/docs/CULTURAL_DAILY_SPONSORED_FORMAT_GUIDE.md \\",
+            "  --write-category-allowlist",
             "```",
             "",
         ]
@@ -218,6 +318,11 @@ def main() -> None:
     )
     ap.add_argument("--out-json", default=str(ROOT / "data" / "sponsored_last_year_audit.json"))
     ap.add_argument("--out-md", default=str(ROOT / "docs" / "CULTURAL_DAILY_SPONSORED_FORMAT_GUIDE.md"))
+    ap.add_argument(
+        "--write-category-allowlist",
+        action="store_true",
+        help="Write data/cd_sponsor_category_allowlist.json from non-forbidden slugs in this window",
+    )
     args = ap.parse_args()
 
     wp_url = os.environ.get("WP_URL", "https://www.culturaldaily.com").rstrip("/")
@@ -240,6 +345,7 @@ def main() -> None:
     print(f"Fetching posts published after {after_iso} (author={author_id})…", file=sys.stderr)
     posts = fetch_posts_author_since(wp_url, author_id, auth, after_iso=after_iso)
     agg, posts_with_html = aggregate_rendered_posts(posts)
+    cat_rows, allow_slugs = aggregate_category_assignments(wp_url, auth, posts)
 
     out: Dict[str, Any] = {
         "meta": {
@@ -253,7 +359,25 @@ def main() -> None:
             "generated_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         },
         **agg,
+        "category_slug_counts": cat_rows,
     }
+
+    if args.write_category_allowlist:
+        allow_path = ROOT / "data" / "cd_sponsor_category_allowlist.json"
+        allow_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "_comment": (
+                "Non-forbidden category slugs observed in the sponsored audit window; used by pipeline "
+                "``resolve_cd_sponsored_category`` so planner hints (e.g. grey-niche) map only to audited lanes. "
+                "Regenerate with: python3 scripts/audit_sponsored_last_year.py --write-category-allowlist"
+            ),
+            "slugs": allow_slugs,
+        }
+        allow_path.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        print(f"Wrote {allow_path} ({len(allow_slugs)} slugs)", file=sys.stderr)
 
     outp = Path(args.out_json)
     outp.parent.mkdir(parents=True, exist_ok=True)

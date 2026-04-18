@@ -263,7 +263,8 @@ def _default_plan_system(site: dict) -> str:
         - hero_image_alt: 12–160 characters; plain description of what is visible in the hero/social photo
           (not the article headline, not a repeat of the H1)
         - photographer_fallback_name: string (Pexels credit hint; may be empty)
-        - category_hint: short string like "travel", "film", "books", "food", "music", "theater", "art"
+        - category_hint: on CD, WordPress category lane (e.g. "Check This Out", "casino", "grey niche"); on
+          other sites, hints like "travel", "film", "books" still apply where relevant
 
         If MACHINE_INTAKE_JSON is present, it lists each http(s) anchor with shape hints only
         (bold, target_blank, nofollow, inline color) — use it to understand topics and URLs, not to emit HTML.
@@ -308,11 +309,14 @@ def plan_from_gdoc_html(
                 - post_title MUST match MACHINE_EXTRACTED_H1 exactly (character-for-character).
                 - Do NOT output article_body_html — the pipeline builds the article body only from the Doc HTML.
                 - Do NOT alter donation text — the pipeline appends the canonical donation block; never invent or rewrite it.
-                - focus_keyword: 1–2 words only, core subject (never the full H1); pipeline enforces score ≥70 when possible.
+                - focus_keyword: **1 word from the title when possible** (sometimes 2); short core subject (never the full H1); pipeline enforces internal content score ≥82 for CD QA.
                 - seo_title: optional AIOSEO hint (<=60 chars); the pipeline builds the final AIOSEO title from the H1 with word-safe clipping and optional `` | Cultural Daily`` suffix.
                 - meta_description: 120–160 chars; use only wording supported by the plaintext excerpt (no new factual claims).
                 - hero_image_alt: required short visual description of the hero photograph (never the H1 string).
-                - category_hint must be exactly: Check This Out (never Sponsored).
+                - category_hint: set a **specific** WordPress lane when obvious (e.g. ``casino``, ``grey niche``,
+                  kebab-case slug hints). Use **Check This Out** only for generic arts/culture Our Friends pieces.
+                  The pipeline **also** infers lanes from title + topic_slug + excerpt when the hint is generic,
+                  so you need not repeat obvious verticals. **Never** Featured Story or Sponsored.
                 - If MACHINE_CLIENT_IMAGE_SRC is not "(none)", set hero_pexels_query to "" (empty string).
                 - Social image is mandatory: the pipeline always generates and sets OG/social; never omit.
                 - Social output must be exactly 1920×1400 pixels (handled by the pipeline resize — do not suggest other sizes).
@@ -356,7 +360,9 @@ def plan_from_gdoc_html(
             + "\n"
         )
         user_parts.append(
-            "\nMACHINE_CLIENT_IMAGE_SRC:\n" + (client_image_src or "(none)") + "\n"
+            "\nMACHINE_CLIENT_IMAGE_SRC:\n"
+            + planner_client_image_src_excerpt_for_llm(client_image_src)
+            + "\n"
         )
     if critical_rules and site.get("key") == "cd":
         user_parts.append("\n" + audit_conformity_machine_note() + "\n")
@@ -566,6 +572,25 @@ def first_client_image_src_from_gdoc(ghtml: str) -> Optional[str]:
     return None
 
 
+def planner_client_image_src_excerpt_for_llm(src: Optional[str]) -> str:
+    """
+    Google Docs often exports the lead image as a multi-megabyte ``data:…;base64,…`` URI.
+    That must never be pasted into the Anthropic planner prompt (token limit).
+    """
+    if not src:
+        return "(none)"
+    s = src.strip()
+    if s.startswith("data:"):
+        meta, sep, _rest = s.partition(",")
+        return (
+            f"{meta}{sep}[base64 omitted; inline image length={len(s)} chars — "
+            "pipeline still loads this as the client hero]"
+        )
+    if len(s) > 2000:
+        return s[:2000] + f"...[truncated; total {len(s)} chars]"
+    return s
+
+
 def _url_key(u: str) -> str:
     u = (u or "").strip().split("?", 1)[0].strip().lower()
     return u.rstrip("/")
@@ -741,6 +766,277 @@ def normalize_cd_body_vertical_spacing(html: str) -> str:
     return s
 
 
+def cd_promote_gdoc_heading_paragraphs(html: str) -> str:
+    """
+    Google Docs often exports **section titles** as a single styled ``<p><span class=…>Title</span></p>``
+    while true subheads use ``<h3><span class=…>``. Published Our Friends HTML (audit corpus) uses
+    ``<h2>`` for those section tiers. We learn span-class **fingerprints** from existing ``h2``–``h6``
+    in the same export, then promote short, link-free ``<p>`` blocks that match — document-relative,
+    so per-doc ``c1`` / ``c4`` ids do not need to be hard-coded.
+    """
+    if not (html or "").strip():
+        return html
+    soup = BeautifulSoup(html, "html.parser")
+    span_fps: set[tuple[str, ...]] = set()
+    for hx in soup.find_all(["h2", "h3", "h4", "h5", "h6"]):
+        spans = [c for c in hx.children if getattr(c, "name", "") == "span"]
+        if len(spans) == 1 and (spans[0].get("class") or []):
+            cl = spans[0].get("class") or []
+            if isinstance(cl, list):
+                span_fps.add(tuple(sorted(str(x) for x in cl if x)))
+        else:
+            sp0 = hx.find("span", recursive=False)
+            if sp0 and (sp0.get("class") or []):
+                cl = sp0.get("class") or []
+                if isinstance(cl, list):
+                    span_fps.add(tuple(sorted(str(x) for x in cl if x)))
+    if not span_fps:
+        return str(soup)
+
+    promoted = 0
+    for p in list(soup.find_all("p")):
+        if p.find_parent("li"):
+            continue
+        if p.find("a") or p.find("img"):
+            continue
+        elems = [c for c in p.children if getattr(c, "name", None)]
+        if len(elems) != 1 or elems[0].name != "span":
+            continue
+        sp = elems[0]
+        cl = sp.get("class") or []
+        if not isinstance(cl, list):
+            continue
+        fp = tuple(sorted(str(x) for x in cl if x))
+        if fp not in span_fps:
+            continue
+        tx = p.get_text(" ", strip=True)
+        if len(tx) < 8 or len(tx) > 220:
+            continue
+        if re.match(r"^photo\s*:", tx, re.I):
+            continue
+        h2 = soup.new_tag("h2")
+        for child in list(p.contents):
+            h2.append(child)
+        p.replace_with(h2)
+        promoted += 1
+
+    if promoted:
+        print(
+            f"[2b] CD audit align: promoted {promoted} GDoc section "
+            f"<p> block(s) to <h2> (matched heading span classes from this Doc's h2–h6)."
+        )
+    return str(soup)
+
+
+_FOOTNOTE_DEF_ANCHOR_ID_RE = re.compile(r"^cmnt\d+$", re.I)
+_FOOTNOTE_DEF_ANCHOR_HREF_RE = re.compile(r"^#cmnt_ref\d+$", re.I)
+
+
+def _cd_url_looks_like_inline_image(url: str) -> bool:
+    u = (url or "").strip()
+    if not u.startswith(("http://", "https://")):
+        return False
+    low = u.lower()
+    if "imrs.php" in low:
+        return True
+    base = u.split("?", 1)[0].lower()
+    return bool(re.search(r"\.(jpe?g|png|webp|gif)$", base, re.I))
+
+
+def cd_resolve_gdoc_footnote_images(html: str) -> str:
+    """
+    Google Docs often stores image credits as **footnotes**: inline markers such as
+    ``<sup><a href="#cmnt1" id="cmnt_ref1">[a]</a></sup>`` and definitions at the **end** of the
+    export body: ``<a href="#cmnt_ref1" id="cmnt1">[a]</a><span>https://…jpg…</span>``.
+
+    Those footnote blocks paste as ugly blue ``[a]`` links and duplicate URLs after the article.
+    This pass resolves each ``#cmntN`` marker to a real ``<img src="https…">`` (so
+    :func:`cd_reupload_inline_body_images` can upload them) and **removes** the footnote definition
+    paragraphs from the HTML.
+    """
+    if not (html or "").strip():
+        return html
+    soup = BeautifulSoup(html, "html.parser")
+    url_by_cmnt: dict[str, str] = {}
+    def_ps: List[Any] = []
+
+    for a in list(soup.find_all("a", id=True, href=True)):
+        aid = str(a.get("id") or "").strip()
+        if not _FOOTNOTE_DEF_ANCHOR_ID_RE.match(aid):
+            continue
+        if not _FOOTNOTE_DEF_ANCHOR_HREF_RE.match(str(a.get("href") or "").strip()):
+            continue
+        raw_u = ""
+        sp = a.find_next_sibling()
+        if sp is not None and getattr(sp, "name", "") == "span":
+            raw_u = html_module.unescape(re.sub(r"\s+", "", (sp.get_text() or "").strip()))
+        if not _cd_url_looks_like_inline_image(raw_u):
+            par = a.find_parent("p")
+            if par is not None:
+                for s in par.find_all("span"):
+                    cand = html_module.unescape(re.sub(r"\s+", "", (s.get_text() or "").strip()))
+                    if cand.startswith("http") and _cd_url_looks_like_inline_image(cand):
+                        raw_u = cand
+                        break
+        if not _cd_url_looks_like_inline_image(raw_u):
+            continue
+        url_by_cmnt[aid.lower()] = raw_u
+        p = a.find_parent("p")
+        if p is not None and p not in def_ps:
+            def_ps.append(p)
+
+    for p in def_ps:
+        p.decompose()
+
+    replaced = 0
+    for a in list(soup.find_all("a", href=True)):
+        href = str(a.get("href") or "").strip()
+        m = re.fullmatch(r"#(cmnt\d+)", href, flags=re.I)
+        if not m:
+            continue
+        key = m.group(1).lower()
+        url = url_by_cmnt.get(key)
+        if not url:
+            continue
+        img = soup.new_tag("img", src=url, alt="")
+        parent = a.parent
+        if parent is not None and getattr(parent, "name", "") == "sup":
+            strays = [
+                x
+                for x in parent.contents
+                if isinstance(x, NavigableString) and str(x).strip()
+            ]
+            elems = [x for x in parent.children if getattr(x, "name", None)]
+            if not strays and len(elems) == 1 and elems[0] is a:
+                parent.replace_with(img)
+                replaced += 1
+                continue
+        a.replace_with(img)
+        replaced += 1
+
+    for a in list(soup.find_all("a", href=True)):
+        href = str(a.get("href") or "").strip()
+        if not re.fullmatch(r"#cmnt\d+", href, flags=re.I):
+            continue
+        tx = a.get_text(strip=True)
+        if not re.match(r"^\[[a-zA-Z0-9]+\]$", tx):
+            continue
+        sup = a.parent
+        if sup is not None and getattr(sup, "name", "") == "sup":
+            sup.decompose()
+        else:
+            a.decompose()
+
+    for dv in list(soup.find_all("div")):
+        if dv.find(True) is None and not (dv.get_text() or "").strip():
+            dv.decompose()
+
+    if replaced:
+        print(
+            f"[2c] Google Doc footnotes: replaced {replaced} [a]/[b]/… marker(s) with <img> "
+            f"and removed {len(def_ps)} footnote URL block(s) from the body."
+        )
+    return str(soup)
+
+
+def cd_strip_residual_footnote_url_paragraphs(html: str) -> str:
+    """
+    Drop ``<p>`` nodes that are only a GDoc-style marker plus a bare image URL (common when the
+    footnote definition block layout does not match ``#cmntN`` + sibling ``<span>``).
+    """
+    if not (html or "").strip():
+        return html
+    soup = BeautifulSoup(html, "html.parser")
+    killed = 0
+    for p in list(soup.find_all("p")):
+        t = p.get_text(" ", strip=True)
+        if re.match(r"^\[[a-zA-Z0-9]+\]\s*https?://", t):
+            p.decompose()
+            killed += 1
+    if killed:
+        print(f"[2c] Google Doc footnotes: removed {killed} residual [x]+URL paragraph(s).")
+    return str(soup)
+
+
+def _cd_first_substantial_body_paragraph(soup: BeautifulSoup, after_p) -> Any:
+    """First later ``<p>`` that looks like real article prose (not a caption / credit stub)."""
+    seen = False
+    fallback: List[Any] = []
+    for p in soup.find_all("p"):
+        if p is after_p:
+            seen = True
+            continue
+        if not seen:
+            continue
+        t = p.get_text(" ", strip=True)
+        if t.lower().startswith("photo:"):
+            continue
+        if len(t) >= 80:
+            return p
+        if len(t) >= 50 and max(t.count("."), t.count("!"), t.count("?")) >= 1:
+            return p
+        if len(t) >= 45:
+            fallback.append(p)
+    return fallback[0] if fallback else None
+
+
+def cd_relocate_lead_images_after_substantive_opening(html: str, *, used_client_hero: bool) -> str:
+    """
+    When the client hero was stripped from the body, GDoc footnote inserts often remain in the
+    **first** ``<p>`` as bare ``<img>`` rows before the real opener — unlike published Our Friends
+    HTML, which leads with prose. Move those lead-only images to **after** the first substantial
+    paragraph.
+    """
+    if not (html or "").strip() or not used_client_hero:
+        return html
+    soup = BeautifulSoup(html, "html.parser")
+    ps = soup.find_all("p")
+    if not ps:
+        return str(soup)
+    p0 = ps[0]
+    imgs = [
+        im
+        for im in p0.find_all("img")
+        if (im.get("src") or "").strip().lower().startswith("http")
+    ]
+    if not imgs:
+        return str(soup)
+    t0 = p0.get_text(" ", strip=True)
+    if len(t0) >= 72:
+        return str(soup)
+    anchor = _cd_first_substantial_body_paragraph(soup, p0)
+    if anchor is None:
+        return str(soup)
+    prev = anchor
+    n_moved = 0
+    for im in list(imgs):
+        np = soup.new_tag("p")
+        np.append(im.extract())
+        prev.insert_after(np)
+        prev = np
+        n_moved += 1
+    if not p0.get_text(strip=True) and not p0.find("img"):
+        p0.decompose()
+    if n_moved:
+        print(
+            "[2c] CD audit align: moved lead-only inline <img> row(s) after first substantive paragraph "
+            "(client hero removed from body)."
+        )
+    return str(soup)
+
+
+def _cd_simplify_heading_wrapper_spans(soup: BeautifulSoup) -> None:
+    """Unwrap a sole decorative ``<span>`` inside ``h2``–``h6`` (common in GDoc exports) toward corpus ``h2>#text``."""
+    for hx in soup.find_all(["h2", "h3", "h4", "h5", "h6"]):
+        elems = [c for c in hx.children if getattr(c, "name", None)]
+        if len(elems) != 1 or elems[0].name != "span":
+            continue
+        sp = elems[0]
+        if sp.find(["a", "img"]):
+            continue
+        sp.unwrap()
+
+
 def _strip_audit_style_number_prefix_from_h2(text: str) -> str:
     """
     Audit-dominant heading style on Cultural Daily is non-numbered H2.
@@ -773,13 +1069,19 @@ def load_audit_format_profile() -> dict:
 
 def format_to_audit_standard(html: str, *, site: dict) -> str:
     """
-    Transform body HTML **structure** to match dominant patterns observed in
-    ``data/audit_format_profile.json`` (derived from the same cohort as
-    ``our_friends_audit.json``). Does not change words, facts, or link URLs.
+    Transform body HTML **structure** toward patterns in ``data/audit_format_profile.json``
+    (Our Friends corpus). Does not change words, facts, or link URLs.
 
-    Uses ``thresholds`` from the profile when present; otherwise falls back to
-    conservative CD defaults (strip ordinal-prefixed H2s when the corpus
-    favors non-numbered headings; collapse extra newlines).
+    Steps (CD only):
+
+    1. Strip leading ``1.`` / ``2)`` style markers from ``<h2>`` when the profile says the corpus
+       favors plain H2s (``thresholds.strip_h2_leading_ordinals``).
+    2. Unwrap a sole decorative ``<span>`` inside ``<h2>``–``<h6>`` (GDoc export noise).
+    3. ``normalize_cd_body_vertical_spacing`` — empty spacer ``<p>`` removal + newline collapse
+       (aligns with ``collapse_runs_of_newlines_ge_3`` / ``max_serialized_newline_run`` in the profile).
+
+    Section titles that Google exports as styled ``<p>`` are promoted to ``<h2>`` earlier in the
+    pipeline via :func:`cd_promote_gdoc_heading_paragraphs` (same pass as audit alignment).
     """
     if not (html or "").strip():
         return html
@@ -803,6 +1105,7 @@ def format_to_audit_standard(html: str, *, site: dict) -> str:
             else:
                 h2.clear()
                 h2.append(stripped)
+    _cd_simplify_heading_wrapper_spans(soup)
     return normalize_cd_body_vertical_spacing(str(soup))
 
 
@@ -894,9 +1197,10 @@ def _cd_apply_figure_center_styles(fig, img) -> None:
         if token not in icls:
             icls.append(token)
     img["class"] = icls
+    img["align"] = "center"
 
 
-def cd_format_body_inline_images(html: str, *, post_title: str = "") -> str:
+def cd_format_body_inline_images(html: str, *, post_title: str = "", site: dict) -> str:
     """
     Center inline images (WordPress-friendly ``aligncenter`` + margins) and unwrap GDoc ``<span>``
     wrappers; ensure alt is a photo description (never the article title); place a following
@@ -911,8 +1215,7 @@ def cd_format_body_inline_images(html: str, *, post_title: str = "") -> str:
     for slot, img in enumerate(imgs, start=1):
         alt0 = (img.get("alt") or img.get("title") or "").strip()
         img["alt"] = _cd_inline_alt_for_img(alt0, post_title, slot=slot)
-        if "title" in img.attrs:
-            del img["title"]
+        img["title"] = cd_insert_media_title(site, slot)
         cap_txt = ""
         nxt = img.find_next("p")
         if nxt and nxt.get_text(" ", strip=True).lower().startswith("photo:"):
@@ -1066,22 +1369,129 @@ def compact_focus_keyword(raw: str, *, max_words: int = 4, max_len: int = 48) ->
     return raw[:max_len].rstrip(" -–—")
 
 
-def focus_keyword_content_score(keyphrase: str, haystack: str) -> float:
+_CD_FOCUS_STOPWORDS = frozenset(
     """
-    Lightweight relevance score (0–100) of ``keyphrase`` against combined article text.
-    Used to prefer shorter phrases (e.g. ``bone broth``) when a longer keyphrase scores low.
+    a an the and or but if as at by for from in into of on to with without is are was were
+    be been being have has had do does did will would could should may might must can
+    this that these those it its they them their we our you your i me my he him his she her
+    what which who whom whose when where why how all each every both few more most some
+    such no nor not only own same so than too very just also there here even ever still
+    already then now once again about above after before between through during under over
+    out up down off within across along though although whether another other any many much
+    say said says get got go going went come came make made take took see saw know knew
+    think thought want wanted one two first last next new old long big small high low let
+    lets via per vs
+    """.split()
+)
+
+
+def cd_title_focus_keyword_candidates(title: str) -> List[str]:
+    """
+    Ordered keyphrase candidates from the post title: **single words first** (audit / AIOSEO
+    favor short focus keys), then adjacent two-word spans. Skips obvious stopwords.
+    """
+    t = unicodedata.normalize("NFKC", (title or "")).strip()
+    if not t:
+        return []
+    tl = t.lower()
+    words = re.findall(r"[a-z0-9]+(?:'[a-z]+)?", tl)
+    if not words:
+        return []
+    out: List[str] = []
+    seen: set[str] = set()
+
+    def push(w: str) -> None:
+        w = w.strip().lower()
+        if not w or w in seen or len(w) < 2:
+            return
+        seen.add(w)
+        out.append(w)
+
+    for w in words:
+        if w in _CD_FOCUS_STOPWORDS or len(w) < 3:
+            continue
+        push(w)
+    for w in words:
+        if len(w) != 2 or not w.isalnum() or w in seen:
+            continue
+        push(w)
+    for i in range(len(words) - 1):
+        a, b = words[i], words[i + 1]
+        if len(a) < 2 or len(b) < 2:
+            continue
+        if a in _CD_FOCUS_STOPWORDS or b in _CD_FOCUS_STOPWORDS:
+            continue
+        push(f"{a} {b}")
+    return out
+
+
+def focus_keyword_content_score(
+    keyphrase: str, haystack: str, *, title: str = ""
+) -> float:
+    """
+    Lightweight relevance score (0–100) of ``keyphrase`` against article text, with a **title
+    match bonus** (AIOSEO strongly weights the keyphrase appearing in the H1).
+    Calibrated so title-derived 1–2 word keys used by :func:`refine_focus_keyword_for_content`
+    normally clear the CD QA bar (≥82).
     """
     k = (keyphrase or "").strip().lower()
     h = (haystack or "").lower()
+    ti = unicodedata.normalize("NFKC", (title or "")).strip().lower()
     if not k or not h:
         return 0.0
     if k in h:
-        return min(100.0, 72.0 + min(28.0, float(h.count(k)) * 6.0))
-    parts = [w for w in k.split() if len(w) > 1]
-    if not parts:
-        return 0.0
-    hits = sum(1 for w in parts if w in h)
-    return min(99.0, (hits / len(parts)) * 88.0)
+        sc = min(100.0, 72.0 + min(28.0, float(h.count(k)) * 6.0))
+    else:
+        parts = [w for w in k.split() if len(w) > 1]
+        if not parts:
+            return 0.0
+        hits = sum(1 for w in parts if w in h)
+        sc = min(99.0, (hits / len(parts)) * 88.0)
+    if ti and k in ti:
+        if k in h:
+            sc = max(
+                sc,
+                min(
+                    100.0,
+                    82.0 + min(18.0, max(0.0, float(h.count(k)) - 1.0) * 6.0),
+                ),
+            )
+        elif " " not in k:
+            sc = max(sc, 77.0)
+        else:
+            sc = max(sc, min(100.0, 80.0 + min(20.0, float(h.count(k)) * 8.0)))
+    return sc
+
+
+def _cd_pick_focus_keyword_by_score(
+    candidates: List[str],
+    hay: str,
+    title: str,
+    *,
+    target: float = 82.0,
+) -> str:
+    """Prefer the shortest (usually 1-word) candidate that meets ``target``; else best score."""
+    ti = unicodedata.normalize("NFKC", (title or "")).strip()
+    seen: set[str] = set()
+    uniq: List[str] = []
+    for c in candidates:
+        c2 = compact_focus_keyword(c, max_words=2, max_len=36)
+        if not c2 or c2 in seen:
+            continue
+        seen.add(c2)
+        uniq.append(c2)
+    if not uniq:
+        return ""
+    scored: List[Tuple[float, int, int, str]] = []
+    for i, k in enumerate(uniq):
+        sc = focus_keyword_content_score(k, hay, title=ti)
+        scored.append((sc, len(k.split()), i, k))
+    qual = [t for t in scored if t[0] >= target - 0.001]
+    if qual:
+        qual.sort(key=lambda t: (t[1], -t[0], t[2]))
+        return qual[0][3]
+    scored.sort(key=lambda t: (-t[0], t[1], t[2]))
+    return scored[0][3]
 
 
 def refine_focus_keyword_for_content(
@@ -1092,54 +1502,54 @@ def refine_focus_keyword_for_content(
     title: str,
     topic_slug: str,
 ) -> str:
-    """1–2 words only; score must reach at least 70 against article text when possible."""
+    """
+    **1 word from the title when possible** (sometimes 2). Picks the shortest phrase that scores
+    ≥82 against body + doc + title so AIOSEO is not dragged down by a long planner keyphrase.
+    """
     hay = f"{body}\n{doc_html}\n{title}"
+    ti = unicodedata.normalize("NFKC", (title or "")).strip()
+    candidates: List[str] = []
+    candidates.extend(cd_title_focus_keyword_candidates(ti))
     base = compact_focus_keyword(focus, max_words=2, max_len=36)
     if not base:
         base = compact_focus_keyword(topic_slug.replace("-", " "), max_words=2, max_len=36)
-    candidates: List[str] = []
-    words = base.split()
-    for n in range(min(len(words), 2), 0, -1):
-        candidates.append(" ".join(words[:n]))
-    if words:
-        candidates.append(words[0])
+    if base:
+        candidates.append(base)
+        ws = base.split()
+        for n in range(min(len(ws), 2), 0, -1):
+            candidates.append(" ".join(ws[:n]))
+        if ws:
+            candidates.append(ws[0])
     candidates.append(compact_focus_keyword(topic_slug.replace("-", " "), max_words=2, max_len=36))
-    seen: set[str] = set()
-    best = base
-    best_score = focus_keyword_content_score(base, hay)
-    for cand in candidates:
-        c2 = compact_focus_keyword(cand, max_words=2, max_len=36)
-        if not c2 or c2 in seen:
+    chosen = _cd_pick_focus_keyword_by_score(candidates, hay, ti, target=82.0)
+    if chosen:
+        sc = focus_keyword_content_score(chosen, hay, title=ti)
+        if sc >= 81.99:
+            return chosen
+
+    seen: set[str] = {chosen} if chosen else set()
+    for w in topic_slug.replace("-", " ").split():
+        t = compact_focus_keyword(w, max_words=1, max_len=24)
+        if not t or t in seen:
             continue
-        seen.add(c2)
-        sc = focus_keyword_content_score(c2, hay)
-        if sc > best_score or (sc >= 70.0 and best_score < 70.0):
-            best, best_score = c2, sc
-        if best_score >= 70.0:
-            break
-    if best_score < 70.0:
-        for w in topic_slug.replace("-", " ").split():
-            t = compact_focus_keyword(w, max_words=1, max_len=24)
-            if not t or t in seen:
-                continue
-            seen.add(t)
-            sc = focus_keyword_content_score(t, hay)
-            if sc >= 70.0:
-                return t
-        for w in ("culture", "food", "health", "film", "music", "art", "books"):
-            if w in seen:
-                continue
-            sc = focus_keyword_content_score(w, hay)
-            if sc >= 70.0:
-                return w
-        for w in re.findall(r"[a-z][a-z'-]{3,}", (topic_slug + " " + title).lower()):
-            if w in seen or len(w) < 4:
-                continue
-            seen.add(w)
-            sc = focus_keyword_content_score(w, hay)
-            if sc >= 70.0:
-                return w
-    return best
+        seen.add(t)
+        sc = focus_keyword_content_score(t, hay, title=ti)
+        if sc >= 82.0:
+            return t
+    for w in ("culture", "food", "health", "film", "music", "art", "books"):
+        if w in seen:
+            continue
+        sc = focus_keyword_content_score(w, hay, title=ti)
+        if sc >= 82.0:
+            return w
+    for w in re.findall(r"[a-z][a-z'-]{3,}", (topic_slug + " " + ti).lower()):
+        if w in seen or len(w) < 4:
+            continue
+        seen.add(w)
+        sc = focus_keyword_content_score(w, hay, title=ti)
+        if sc >= 82.0:
+            return w
+    return chosen or compact_focus_keyword(topic_slug.replace("-", " "), max_words=2, max_len=36)
 
 
 def derive_meta_from_gdoc_first_paragraph(ghtml: str, max_len: int = 160) -> str:
@@ -1170,6 +1580,285 @@ def client_photo_citation_html(credit_url: Optional[str], credit_label: str) -> 
         )
     inner = f"Photo: {label}" if label else "Photo"
     return f"<p><em>{inner}</em></p>"
+
+
+CD_SPONSOR_CATEGORY_ALLOWLIST_JSON = REPO_ROOT / "data" / "cd_sponsor_category_allowlist.json"
+SPONSORED_LAST_YEAR_AUDIT_JSON = REPO_ROOT / "data" / "sponsored_last_year_audit.json"
+
+# Planner hints treated as “generic” — machine lane detection may override (see ``infer_cd_sponsor_category_hint``).
+_CD_GENERIC_CATEGORY_HINTS = frozenset(
+    {
+        "",
+        "check this out",
+        "check-this-out",
+        "check this out ",
+        "culture",
+        "general",
+        "arts",
+        "arts and culture",
+        "art",
+    }
+)
+
+# Slugs we may try even when absent from a stale audit export (WordPress must still define them).
+_CD_SPONSOR_LANE_SLUGS = frozenset({"casino", "grey-niche", "crypto", "sports"})
+
+
+def cd_sponsor_category_forbidden(slug: str, name: str) -> bool:
+    """Hard blocks for Our Friends CD category assignment (slug + display name)."""
+    slug_l = (slug or "").lower()
+    name_l = (name or "").lower()
+    if slug_l == "sponsored":
+        return True
+    if "featured" in slug_l and "story" in slug_l:
+        return True
+    if re.search(r"featured[-\s_]?story", slug_l):
+        return True
+    if "featured" in name_l and "story" in name_l:
+        return True
+    return False
+
+
+def _slugify_category_hint(text: str) -> str:
+    t = (text or "").strip().lower()
+    t = re.sub(r"[^a-z0-9]+", "-", t)
+    return t.strip("-")
+
+
+def _load_cd_sponsor_category_allowlist() -> Optional[set[str]]:
+    p = CD_SPONSOR_CATEGORY_ALLOWLIST_JSON
+    if not p.is_file():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    slugs = data.get("slugs")
+    if not isinstance(slugs, list):
+        return None
+    out = {str(s).strip().lower() for s in slugs if str(s).strip()}
+    return out or None
+
+
+def _effective_cd_category_allowlist() -> Optional[set[str]]:
+    """
+    Union of explicit ``cd_sponsor_category_allowlist.json`` and non-forbidden slugs from
+    ``sponsored_last_year_audit.json`` (when those files exist). Always includes ``check-this-out``.
+
+    Returns ``None`` when **no** audit/allowlist file contributed data — then any non-forbidden
+    slug from hints/topic may be tried against WordPress.
+    """
+    merged: set[str] = set()
+    had_source = False
+    expl = _load_cd_sponsor_category_allowlist()
+    if expl:
+        merged |= expl
+        had_source = True
+    p = SPONSORED_LAST_YEAR_AUDIT_JSON
+    if p.is_file():
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            rows = data.get("category_slug_counts") or []
+            for row in rows:
+                if row.get("cd_sponsor_forbidden"):
+                    continue
+                s = (row.get("slug") or "").strip().lower()
+                if s:
+                    merged.add(s)
+            if rows:
+                had_source = True
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"[warn] Could not read category_slug_counts from {p}: {e}")
+    merged.add("check-this-out")
+    merged |= _CD_SPONSOR_LANE_SLUGS
+    if not had_source and not expl:
+        return None
+    return merged
+
+
+def infer_cd_sponsor_category_hint(
+    planner_hint: str,
+    *,
+    topic_slug: str,
+    title: str,
+    plaintext_excerpt: str,
+) -> str:
+    """
+    When the planner leaves a **generic** category hint, infer a WordPress-facing lane from
+    ``topic_slug``, ``title``, and a plaintext Doc excerpt (no LLM). Examples: gambling / slots /
+    loot boxes → ``casino``; grey + niche → ``grey niche``. Specific planner hints are kept as-is.
+    """
+    raw = (planner_hint or "").strip()
+    slug_pl = _slugify_category_hint(raw)
+    if raw and slug_pl not in _CD_GENERIC_CATEGORY_HINTS:
+        return raw
+    blob = f"{topic_slug} {title} {plaintext_excerpt}".lower()
+    if "grey" in blob and "niche" in blob:
+        return "grey niche"
+    if any(
+        k in blob
+        for k in (
+            "casino",
+            "slot machine",
+            "slot-m",
+            "loot box",
+            "lootbox",
+            "loot-box",
+            "sportsbook",
+            "sports book",
+            "blackjack",
+            "roulette",
+            "jackpot",
+            "gambling",
+            "betting",
+            "wager",
+            "craps",
+            "poker",
+        )
+    ):
+        return "casino"
+    if any(k in blob for k in ("crypto", "bitcoin", "blockchain", "defi", "nft")):
+        return "crypto"
+    if any(k in blob for k in ("sports betting", "sports-betting", "bookmaker", "odds boost")):
+        return "sports"
+    if raw:
+        return raw
+    return "Check This Out"
+
+
+def _cd_category_slug_candidates(category_hint: str, topic_slug: str) -> List[str]:
+    """Ordered slug candidates: hint first, then topic tokens (gambling-like parts before generic words)."""
+    out: List[str] = []
+    seen: set[str] = set()
+
+    def add(s: str) -> None:
+        s = _slugify_category_hint(s)
+        if len(s) < 2 or s in seen:
+            return
+        seen.add(s)
+        out.append(s)
+
+    def _topic_part_rank(part: str) -> tuple[int, int]:
+        p = part.lower()
+        if any(k in p for k in ("gambl", "slot", "casino", "bet", "loot", "wager", "poker", "jackpot")):
+            return (0, -len(p))
+        if any(k in p for k in ("grey", "niche", "sport", "crypto", "book")):
+            return (1, -len(p))
+        return (2, -len(p))
+
+    add(category_hint or "")
+    ts = re.sub(r"[^a-z0-9-]+", "-", (topic_slug or "").lower()).strip("-")
+    parts = [p for p in ts.split("-") if len(p) >= 4]
+    parts.sort(key=_topic_part_rank)
+    for part in parts:
+        add(part)
+    if ts:
+        add(ts)
+    return out
+
+
+def resolve_wp_category_id_by_slug(
+    site: dict, slug: str, *, for_cd_sponsor: bool
+) -> Optional[int]:
+    wp, auth = wp_auth(site)
+    slug = (slug or "").strip().lower()
+    if not slug:
+        return None
+    r = requests.get(
+        f"{wp}/wp-json/wp/v2/categories",
+        auth=auth,
+        params={"slug": slug, "per_page": 5},
+        timeout=30,
+    )
+    r.raise_for_status()
+    for row in r.json():
+        rs = (row.get("slug") or "").lower()
+        rn = row.get("name") or ""
+        if rs != slug:
+            continue
+        if for_cd_sponsor and cd_sponsor_category_forbidden(rs, rn):
+            return None
+        return int(row["id"])
+    return None
+
+
+def resolve_cd_sponsored_category(
+    site: dict,
+    *,
+    category_hint: str,
+    topic_slug: str,
+    title: str = "",
+) -> Tuple[int, str]:
+    """
+    Cultural Daily Our Friends: pick the first **resolving** category slug from the candidate list
+    (refined ``category_hint`` + ``topic_slug`` tokens), gated by :func:`_effective_cd_category_allowlist`
+    when audit / allowlist files exist. Falls back to **Check This Out**.
+
+    ``CD_SPONSOR_CATEGORY_SLUG`` forces a single slug (must resolve and not be forbidden).
+    ``title`` is accepted for API symmetry with :func:`infer_cd_sponsor_category_hint`; candidates
+    are built from ``category_hint`` and ``topic_slug``.
+    """
+    _ = title
+    env_raw = (os.environ.get("CD_SPONSOR_CATEGORY_SLUG") or "").strip()
+    if env_raw:
+        es = _slugify_category_hint(env_raw)
+        cid = resolve_wp_category_id_by_slug(site, es, for_cd_sponsor=True)
+        if cid is None:
+            raise RuntimeError(
+                f"CD_SPONSOR_CATEGORY_SLUG={env_raw!r} does not resolve to a WordPress category "
+                "or is forbidden (Sponsored / Featured Story)."
+            )
+        return cid, es
+
+    allow = _effective_cd_category_allowlist()
+    ordered = _cd_category_slug_candidates(category_hint, topic_slug)
+    for slug in ordered:
+        gated = allow is None or slug in allow or slug == "check-this-out"
+        if not gated:
+            continue
+        cid = resolve_wp_category_id_by_slug(site, slug, for_cd_sponsor=True)
+        if cid is not None:
+            return cid, slug
+
+    cto = resolve_check_this_out_category(site)
+    raw = (category_hint or "").strip()
+    hs = _slugify_category_hint(raw)
+    if hs and hs != "check-this-out":
+        return cto, f"check-this-out (fallback; tried {ordered[:8]!r})"
+    return cto, "check-this-out"
+
+
+def assert_cd_social_attachment_stored_dimensions(
+    site: dict, media: dict, *, context: str
+) -> None:
+    """Fail fast if WordPress did not keep the social JPEG at CD pixel dimensions."""
+    if site.get("key") != "cd":
+        return
+    md = media.get("media_details") or {}
+    sw = int(md.get("width") or 0)
+    sh = int(md.get("height") or 0)
+    ew, eh = int(site["social_w"]), int(site["social_h"])
+    if (sw, sh) != (ew, eh):
+        relax = (os.environ.get("CD_RELAX_SOCIAL_WP_PIXEL_ASSERT") or "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        if relax:
+            print(
+                f"[warn] WordPress stored social as {sw}×{sh}, expected {ew}×{eh} ({context}). "
+                "Continuing because CD_RELAX_SOCIAL_WP_PIXEL_ASSERT=1 — fix host scaling when you can."
+            )
+            return
+        raise RuntimeError(
+            f"CD social image must be stored as {ew}×{eh}px in WordPress (CRITICAL_RULES §11). "
+            f"After upload, REST reports {sw}×{sh} ({context}). "
+            "The file was uploaded at the correct size in the pipeline — if dimensions shrink here, "
+            "the site is applying \"big image\" downscaling or another image plugin/CDN rule. "
+            "Raise WordPress `big_image_size_threshold` (e.g. ≥2560) or disable that scaling so "
+            f"{ew}×{eh} attachments are stored unchanged, then re-run. "
+            "Or set CD_RELAX_SOCIAL_WP_PIXEL_ASSERT=1 once to save a draft despite scaled pixels."
+        )
 
 
 def resolve_check_this_out_category(site: dict) -> int:
@@ -1274,8 +1963,8 @@ def cd_resolve_media_id_by_title(site: dict, title: str) -> Optional[int]:
 
 def cd_sync_inline_attachment_alts_from_body(site: dict, body_html: str) -> None:
     """
-    Copy ``<img alt=\"…\">`` onto WordPress attachment ``alt_text`` for each ``wp-image-{id}`` class.
-    Fixes the media modal showing empty Alternative Text when the post body already has alt.
+    Copy ``<img alt=\"…\">`` and ``title=\"…\"`` (``CD-InsertN``) onto WordPress attachment fields for
+    each ``wp-image-{id}`` class so the Classic editor **Image details** modal shows alt + title.
     """
     if site.get("key") != "cd" or not (body_html or "").strip():
         return
@@ -1297,17 +1986,27 @@ def cd_sync_inline_attachment_alts_from_body(site: dict, body_html: str) -> None
         if mid is None:
             continue
         alt = (img.get("alt") or "").strip()
-        if not alt or mid in seen:
+        tit = (img.get("title") or "").strip()
+        if mid in seen:
+            continue
+        if not alt and not tit:
             continue
         seen.add(mid)
+        payload: Dict[str, str] = {}
+        if alt:
+            payload["alt_text"] = alt
+        if tit:
+            payload["title"] = tit
+        if not payload:
+            continue
         r = requests.post(
             f"{wp}/wp-json/wp/v2/media/{mid}",
             auth=auth,
-            json={"alt_text": alt},
+            json=payload,
             timeout=30,
         )
         if not r.ok:
-            print(f"[warn] media alt_text sync failed id={mid}: {r.status_code} {r.text[:160]}")
+            print(f"[warn] media alt/title sync failed id={mid}: {r.status_code} {r.text[:160]}")
 
 
 def _basename_media_path(url: str) -> str:
@@ -1381,8 +2080,8 @@ def cd_reupload_inline_body_images(
             if (img.get("alt") or "") != new_alt:
                 img["alt"] = new_alt
                 changed = True
-            if "title" in img.attrs:
-                del img["title"]
+            if (img.get("title") or "").strip() != title_m:
+                img["title"] = title_m
                 changed = True
             mid: Optional[int] = None
             cls = img.get("class") or []
@@ -1425,8 +2124,7 @@ def cd_reupload_inline_body_images(
         if nu:
             img["src"] = nu
             img["alt"] = alt_f
-            if "title" in img.attrs:
-                del img["title"]
+            img["title"] = title_m
             mid_up = m.get("id")
             if mid_up is not None:
                 _cd_merge_wp_image_class(img, int(mid_up))
@@ -1891,12 +2589,12 @@ def verify_post(
         kw = ""
     chk("Focus keyword set", bool(kw), f"'{kw}'")
     body_plain_for_kw = BeautifulSoup(pre_tail, "html.parser").get_text(" ", strip=True)
-    if critical_rules and site.get("key") == "cd":
+    if site.get("key") == "cd":
         kw_words = len(kw.split()) if kw else 0
-        kws = focus_keyword_content_score(kw, body_plain_for_kw)
+        kws = focus_keyword_content_score(kw, body_plain_for_kw, title=raw_title)
         chk(
-            "Focus keyword 1–2 words, score ≥70 (CD+CRITICAL)",
-            bool(kw) and 0 < kw_words <= 2 and kws >= 69.9,
+            "Focus keyword 1–2 words, score ≥82 (CD)",
+            bool(kw) and 0 < kw_words <= 2 and kws >= 81.99,
             f"{kw_words} words, score={kws:.1f}",
         )
     elif critical_rules:
@@ -1916,6 +2614,15 @@ def verify_post(
         hw == site["hero_w"] and hh == site["hero_h"],
         f"{hw}×{hh}",
     )
+
+    sw = int((soc.get("media_details") or {}).get("width") or 0)
+    sh = int((soc.get("media_details") or {}).get("height") or 0)
+    if site.get("key") == "cd":
+        chk(
+            "Social attachment stored at 1920×1400 (CD; host must not downscale)",
+            sw == site["social_w"] and sh == site["social_h"],
+            f"{sw}×{sh}",
+        )
 
     ht = hero.get("title") or {}
     h_title = ht.get("raw") or ht.get("rendered") or ""
@@ -1998,6 +2705,34 @@ def verify_post(
             "AIOSEO OG image type is custom",
             og_type in ("custom", "custom_image") or bool(og),
             og_type or "n/a",
+        )
+
+    if site.get("key") == "cd" and critical_rules:
+        cat_ids: List[int] = []
+        for x in post.get("categories") or []:
+            try:
+                cat_ids.append(int(x))
+            except (TypeError, ValueError):
+                continue
+        bad_slug = ""
+        if cat_ids:
+            rcat = requests.get(
+                f"{wp}/wp-json/wp/v2/categories",
+                auth=auth,
+                params={"include": ",".join(str(x) for x in cat_ids[:50]), "per_page": 50},
+                timeout=30,
+            )
+            if rcat.ok:
+                for row in rcat.json():
+                    slug = row.get("slug") or ""
+                    name = row.get("name") or ""
+                    if cd_sponsor_category_forbidden(slug, name):
+                        bad_slug = slug or name
+                        break
+        chk(
+            "Post categories: no Sponsored / Featured Story (CD)",
+            not bad_slug,
+            bad_slug or "ok",
         )
 
     chk(
@@ -2110,9 +2845,10 @@ def _parse_topic_slug_from_attachment_title(title: str, prefix: str) -> str:
 def remediate_latest_cd_draft() -> dict:
     """
     Repair the newest Cultural Daily (Our Friends) draft per CRITICAL_RULES when possible:
-    force **Check This Out** category, compact focus keyphrase, SEO title = post title,
-    ensure OG social URL is set, and re-upload social JPEG at exact 1920×1400 from the
-    current featured hero if the existing social attachment is missing or wrong size.
+    set **category** from audit-backed resolution + title/body lane inference (defaults to
+    **Check This Out**), title-aligned short focus keyphrase (score ≥82 heuristic), SEO title = post title, ensure OG social URL
+    is set, and re-upload social JPEG at exact 1920×1400 from the current featured hero if the
+    existing social attachment is missing or wrong size.
     """
     if not critical_rules_active():
         raise RuntimeError("CRITICAL_RULES.md is missing.")
@@ -2193,6 +2929,12 @@ def remediate_latest_cd_draft() -> dict:
         pre_body = raw_content
         tail_suffix = ""
     pre_body = normalize_cd_body_vertical_spacing(pre_body)
+    pre_body = cd_resolve_gdoc_footnote_images(pre_body)
+    pre_body = cd_strip_residual_footnote_url_paragraphs(pre_body)
+    if not used_pex:
+        pre_body = cd_relocate_lead_images_after_substantive_opening(
+            pre_body, used_client_hero=True
+        )
     pre2 = normalize_cd_body_support_links_for_dofollow(site, pre_body)
     pre2 = cd_deduplicate_inline_body_images(pre2, hero_src_to_skip=hero_url)
     pre2 = cd_reupload_inline_body_images(
@@ -2202,7 +2944,8 @@ def remediate_latest_cd_draft() -> dict:
         post_title=raw_title,
         hero_src_to_skip=hero_url,
     )
-    pre2 = cd_format_body_inline_images(pre2, post_title=raw_title)
+    pre2 = cd_promote_gdoc_heading_paragraphs(pre2)
+    pre2 = cd_format_body_inline_images(pre2, post_title=raw_title, site=site)
     pre2 = format_to_audit_standard(pre2, site=site)
     cd_sync_inline_attachment_alts_from_body(site, pre2)
     new_content = pre2.rstrip() + (("\n\n" + tail_suffix) if tail_suffix else "")
@@ -2246,7 +2989,16 @@ def remediate_latest_cd_draft() -> dict:
         if sw != site["social_w"] or sh != site["social_h"]:
             regen_social = True
 
-    cat_id = resolve_check_this_out_category(site)
+    excerpt_for_cat = BeautifulSoup(raw_content, "html.parser").get_text(" ", strip=True)[:8000]
+    cat_lane = infer_cd_sponsor_category_hint(
+        "",
+        topic_slug=slug,
+        title=raw_title,
+        plaintext_excerpt=excerpt_for_cat,
+    )
+    cat_id, cat_note = resolve_cd_sponsored_category(
+        site, category_hint=cat_lane, topic_slug=slug, title=raw_title
+    )
     rp = requests.post(
         f"{wp}/wp-json/wp/v2/posts/{post_id}",
         auth=auth,
@@ -2254,7 +3006,7 @@ def remediate_latest_cd_draft() -> dict:
         timeout=60,
     )
     rp.raise_for_status()
-    actions.append(f"categories=[{cat_id}] Check This Out")
+    actions.append(f"categories=[{cat_id}] {cat_note}")
 
     if regen_social:
         pil = _download_image(hero_url).convert("RGB")
@@ -2273,8 +3025,18 @@ def remediate_latest_cd_draft() -> dict:
             alt,
             cap,
         )
-        social_url = (sm.get("source_url") or "").strip()
         sid = int(sm["id"])
+        r_sv = requests.get(
+            f"{wp}/wp-json/wp/v2/media/{sid}?context=edit",
+            auth=auth,
+            timeout=30,
+        )
+        r_sv.raise_for_status()
+        assert_cd_social_attachment_stored_dimensions(
+            site, r_sv.json(), context="remediate social reupload"
+        )
+        sm = r_sv.json()
+        social_url = (sm.get("source_url") or "").strip()
         actions.append(f"reuploaded social media id={sid} {site['social_w']}×{site['social_h']}")
     else:
         soc = requests.get(
@@ -2282,6 +3044,9 @@ def remediate_latest_cd_draft() -> dict:
             auth=auth,
             timeout=30,
         ).json()
+        assert_cd_social_attachment_stored_dimensions(
+            site, soc, context="remediate existing social attachment"
+        )
         social_url = (soc.get("source_url") or "").strip()
 
     if not social_url:
@@ -2309,7 +3074,14 @@ def remediate_latest_cd_draft() -> dict:
         )
     except Exception:
         kw = ""
-    focus = compact_focus_keyword((kw or slug.replace("-", " ")).strip(), max_words=2, max_len=36)
+    focus_seed = (kw or slug.replace("-", " ")).strip()
+    focus = refine_focus_keyword_for_content(
+        focus_seed,
+        body=pre2,
+        doc_html="",
+        title=raw_title,
+        topic_slug=slug,
+    )
     raw_plain = BeautifulSoup(raw_content, "html.parser").get_text(" ", strip=True)
     meta_raw = (seo_r.get("aioseo_db") or {}).get("description") or ""
     meta = ensure_meta_description_length(meta_raw or raw_title, raw_plain)
@@ -2338,6 +3110,17 @@ def remediate_latest_cd_draft() -> dict:
         expect_exact_title=raw_title if critical_rules_active() else None,
         critical_rules=True,
     )
+    edit_url = f"{site['wp_url'].rstrip('/')}/wp-admin/post.php?post={post_id}&action=edit"
+    print("[remediate] WhatsApp notification (draft updated)…")
+    send_whatsapp(
+        post_id,
+        raw_title,
+        edit_url,
+        site["site_label"],
+        qa_ok=qa,
+        extra_line="Pipeline: remediate-latest cd (draft refreshed).",
+    )
+    actions.append("whatsapp: draft notification sent (if Twilio configured)")
     return {"post_id": post_id, "hero_id": hero_id, "social_id": int(sid), "actions": actions, "qa_ok": qa}
 
 
@@ -2348,6 +3131,7 @@ def send_whatsapp(
     site_label: str,
     *,
     qa_ok: Optional[bool] = None,
+    extra_line: str = "",
 ) -> None:
     if not TWILIO_SID or not TWILIO_TOKEN or not TWILIO_FROM:
         print("[10] ⚠ WhatsApp skipped — TWILIO creds not set")
@@ -2361,12 +3145,14 @@ def send_whatsapp(
         qa_line = "\nQA: all checks passed."
     elif qa_ok is False:
         qa_line = "\nQA: some checks failed — open the draft in WordPress."
+    extra = f"\n{(extra_line or '').strip()}" if (extra_line or "").strip() else ""
     msg = (
         f"✅ Draft saved — {site_label}\n"
         f"\"{title}\"\n"
         f"ID: {post_id}\n"
         f"Edit: {edit_url}"
         f"{qa_line}"
+        f"{extra}"
     )
     print(f"[10] Sending WhatsApp to {to}…")
     r = requests.post(
@@ -2461,7 +3247,18 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
             meta = derive_meta_from_gdoc_first_paragraph(ghtml)
         if site["key"] != "cd":
             seo_title = title
-        cat_hint = "Check This Out"
+        if site["key"] == "cd":
+            raw_cat = (plan.get("category_hint") or "").strip() or "Check This Out"
+            cat_hint = infer_cd_sponsor_category_hint(
+                raw_cat,
+                topic_slug=topic,
+                title=title,
+                plaintext_excerpt=planner_plaintext_excerpt_from_gdoc(ghtml, max_chars=12_000),
+            )
+            if _slugify_category_hint(cat_hint) != _slugify_category_hint(raw_cat):
+                print(f"[2d] category_hint refined: {raw_cat!r} → {cat_hint!r}")
+        else:
+            cat_hint = "Check This Out"
         if client_src:
             hero_q = ""
 
@@ -2500,6 +3297,13 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         body = remove_client_hero_image_from_body_html(body, client_src)
     if site["key"] == "cd" and cr and machine_h1:
         body = strip_duplicate_lead_title_from_body_html(body, machine_h1)
+    if site["key"] == "cd":
+        body = cd_resolve_gdoc_footnote_images(body)
+        body = cd_strip_residual_footnote_url_paragraphs(body)
+        if client_src:
+            body = cd_relocate_lead_images_after_substantive_opening(
+                body, used_client_hero=True
+            )
     body = canonicalize_body_http_links_cd(site, body)
     body = normalize_cd_body_support_links_for_dofollow(site, body)
     if site["key"] == "cd":
@@ -2513,10 +3317,11 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
             post_title=title,
             hero_src_to_skip=(client_src or "").strip(),
         )
-        body = cd_format_body_inline_images(body, post_title=title)
+        body = cd_promote_gdoc_heading_paragraphs(body)
+        body = cd_format_body_inline_images(body, post_title=title, site=site)
         body = format_to_audit_standard(body, site=site)
         cd_sync_inline_attachment_alts_from_body(site, body)
-    if cr and site["key"] == "cd":
+    if site["key"] == "cd":
         focus = refine_focus_keyword_for_content(
             focus, body=body, doc_html=ghtml, title=title, topic_slug=topic
         )
@@ -2588,10 +3393,21 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     hero_url = hero_media.get("source_url") or ""
 
     print(f"[5] Uploading social {social_fn}…")
+    wp_u, auth_u = wp_auth(site)
     social_media = wp_upload_jpeg(
         site, social_img, social_fn, f"{prefix}-{slug}-social", alt, cap
     )
     social_id = int(social_media["id"])
+    r_sv = requests.get(
+        f"{wp_u}/wp-json/wp/v2/media/{social_id}?context=edit",
+        auth=auth_u,
+        timeout=30,
+    )
+    r_sv.raise_for_status()
+    assert_cd_social_attachment_stored_dimensions(
+        site, r_sv.json(), context="pipeline social upload"
+    )
+    social_media = r_sv.json()
     social_url = social_media.get("source_url") or ""
 
     cite_html = (cite or "").strip()
@@ -2609,7 +3425,10 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     }
 
     if cr and site["key"] == "cd":
-        cat_id = resolve_check_this_out_category(site)
+        cat_id, cat_note = resolve_cd_sponsored_category(
+            site, category_hint=cat_hint, topic_slug=topic, title=title
+        )
+        print(f"[6] WordPress category id={cat_id} ({cat_note})")
     else:
         cat_id = resolve_default_category(site, cat_hint)
 

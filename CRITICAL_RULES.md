@@ -20,13 +20,13 @@ These rules override any general AI behavior, summarization behavior, rewriting 
 
 9. **META DESCRIPTION** — Between **120** and **160** characters inclusive. Grounded in the article; the pipeline pads from Doc text only when the model output is too short.
 
-10. **FOCUS KEYPHRASE** — **One or two words** only. The pipeline scores the phrase against the article body; the chosen phrase must reach **score ≥ 70** when possible (with fallbacks from the topic/title).
+10. **FOCUS KEYPHRASE** — **Usually one word from the H1** (sometimes two adjacent words). The pipeline scores the phrase against the article body + title; the chosen phrase must reach **internal score ≥ 82** for CD QA when possible (with fallbacks from the topic slug). Long planner phrases are rejected in favor of short title-aligned keys so AIOSEO does not sit in the orange band.
 
-11. **SOCIAL IMAGE** — Mandatory. Output is exactly **1920×1400** using **integer floor** on both dimensions (never round up). The image is pushed to AIOSEO as a **custom** OG image (`og_image_type: custom`, custom URL, and custom flag in the REST payload). Alt = simple photo description (same rules as hero). Caption = citation text when source is known, **empty** when unknown.
+11. **SOCIAL IMAGE** — Mandatory. The pipeline renders **1920×1400** (integer floor on both dimensions, never round up) and uploads it. WordPress must **store** that attachment at **1920×1400** with **no exceptions** (if the host downscales “big” JPEGs, fix `big_image_size_threshold` / image plugins so REST `media_details` matches). In the editor: **Social** → **Image source** → **Custom image**, with the custom OG URL pointing at that social JPEG. Alt = simple photo description (same rules as hero). Caption = citation text when source is known, **empty** when unknown.
 
 12. **DONATION CTA** — Exactly this anchor text, no variations: `CLICK HERE TO DONATE IN SUPPORT OF OUR NONPROFIT COVERAGE OF ARTS AND CULTURE` (linked to the standard Cultural Daily support URL).
 
-13. **CATEGORY** — Always **Check This Out**. Never Sponsored.
+13. **CATEGORY** — Default **Check This Out** for general Our Friends arts/culture. The pipeline **also** picks lanes from **title + topic_slug + Doc excerpt** (e.g. gambling/casino/slots → `casino`) and from **`data/sponsored_last_year_audit.json`** `category_slug_counts` when present, so operators are not stuck re-stating obvious verticals. The planner’s `category_hint` wins when it is specific (not generic). **Never** assign **Featured Story** (any slug/name variant). **Never** assign **Sponsored** as the category for these Our Friends posts.
 
 14. **CLIENT IMAGE SOURCE** — Attempt reverse image search when implemented. If no URL and no credit label, hero/social **captions** are empty (no placeholders). Citation HTML is omitted when there is nothing to cite.
 

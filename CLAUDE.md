@@ -16,7 +16,7 @@ This repository powers the **Scoutmonkeys** publishing dashboard and CLI pipelin
   Optional site: `dcr` (requires `DCR_*` env vars and compatible SEO endpoints).
 - **Repair latest CD draft (CRITICAL rules):**  
   `python pipeline.py remediate-latest cd`  
-  Loads `REPO_ROOT/.env` if needed, then forces **Check This Out**, compacts the focus keyphrase, aligns SEO title to the post title, **always re-saves** the processed article body to WordPress (inline **`CD-InsertN`**, dedupe, centered figures, audit formatting — avoids editor/REST drift), patches **social** attachment **alt_text**, resolves **`CD-{topic}-social`** for **AIOSEO / cd-seo** OG (not the hero), and re-uploads the social JPEG at **1920×1400** when that attachment is missing or the wrong size. Set **`REMEDIATE_SKIP_BODY_POST=1`** only to skip the body POST (debugging). Exits non-zero if `verify_post` still fails (e.g. body link shape).  
+  Loads `REPO_ROOT/.env` if needed, then sets **category** via the same audit-backed + lane-inference rules as `pipeline.py` (defaults to **Check This Out**), compacts the focus keyphrase, aligns SEO title to the post title, **always re-saves** the processed article body to WordPress (inline **`CD-InsertN`**, dedupe, centered figures, audit formatting — avoids editor/REST drift), patches **social** attachment **alt_text**, resolves **`CD-{topic}-social`** for **AIOSEO / cd-seo** OG (not the hero), and re-uploads the social JPEG at **1920×1400** when that attachment is missing or the wrong size. Set **`REMEDIATE_SKIP_BODY_POST=1`** only to skip the body POST (debugging). Exits non-zero if `verify_post` still fails (e.g. body link shape).  
   **Corpus + automation overview:** `docs/CD_CORPUS_AND_AUTOMATION.md` · **Published HTML profile:** `data/audit_format_profile.json` (`scripts/build_audit_format_profile.py`) · **Google Doc intake profile:** `data/gdoc_intake_profile.json` (`scripts/build_gdoc_intake_profile.py`, URL list e.g. `data/training_docs.txt`) · **Quick print:** `python3 scripts/print_cd_audit_summary.py` · Each CD run logs a **corpus scorecard** (`[1c]`) when the Doc differs from those profiles.
 - **Web dashboard:** `gunicorn app:app` (Railway sets `PORT`; use `Procfile` locally or on deploy).
 - **Doc intake parse (batch):**  
@@ -39,6 +39,7 @@ This repository powers the **Scoutmonkeys** publishing dashboard and CLI pipelin
 | `DASHBOARD_PASSWORD` | Dashboard login password |
 | `OUR_FRIENDS_AUTHOR_ID` | Default `19` (Cultural Daily) |
 | `REMEDIATE_SKIP_BODY_POST` | If `1` / `true`, `remediate-latest cd` skips updating post `content` (default: body is always synced) |
+| `CD_RELAX_SOCIAL_WP_PIXEL_ASSERT` | If `1` / `true`, do not abort when WordPress stores the social JPEG at something other than 1920×1400 (host downscaling); use only to get a **draft** through until `big_image_size_threshold` / plugins are fixed. QA may still flag the dimension check. |
 | `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN` | Reserved for future Gmail/Drive OAuth flows |
 
 Restore local `.env` from Railway:
@@ -129,7 +130,7 @@ Optional: `AUDIT_MAX_POSTS=500` for a faster sample run.
 
 - New posts are **`draft`** only.
 - **Author:** `OUR_FRIENDS_AUTHOR_ID` (default **19** on CD).
-- **Categories:** default pipeline uses `our-friends` / search hints; **when `CRITICAL_RULES.md` exists on CD**, the pipeline uses **`resolve_check_this_out_category`** (must never assign Sponsored for these posts).
+- **Categories:** default pipeline uses `our-friends` / search hints; **when `CRITICAL_RULES.md` exists on CD**, the pipeline uses **`resolve_cd_sponsored_category`** with **`infer_cd_sponsor_category_hint`**: merges `data/sponsored_last_year_audit.json` `category_slug_counts` + optional `cd_sponsor_category_allowlist.json`, infers lanes (e.g. gambling → **casino**) from title/topic/excerpt when the planner hint is generic, then tries slug candidates against WordPress. **Never** Sponsored or Featured Story.
 
 ## AIOSEO + `cd-seo` sequence
 
