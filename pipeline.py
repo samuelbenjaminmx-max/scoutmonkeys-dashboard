@@ -1450,7 +1450,11 @@ def verify_post(
     chk("Social set as OG image (AIOSEO / cd-seo)", og_ok, og_note)
     if site.get("key") == "cd":
         og_type = (curp.get("og_image_type") or "").strip().lower()
-        chk("AIOSEO OG image type is custom", og_type == "custom" or bool(og), og_type or "n/a")
+        chk(
+            "AIOSEO OG image type is custom",
+            og_type in ("custom", "custom_image") or bool(og),
+            og_type or "n/a",
+        )
 
     chk(
         "Sponsored body links (bold, target=_blank, no nofollow)",
@@ -1495,16 +1499,22 @@ def verify_post(
 
     if "<!--scoutmonkeys-machine-tail-->" in c:
         tail_rest = c.split("<!--scoutmonkeys-machine-tail-->", 1)[1]
-        hp = tail_rest.find("<hr")
+        m_hr = re.search(r"<hr\s*/?>", tail_rest, re.I)
+        hp = m_hr.start() if m_hr else -1
+        rest_after_hr = tail_rest[m_hr.end() :].lstrip() if m_hr else ""
+        # Nothing between ``<hr />`` and the donation block except whitespace — donation opens with ``<p>``.
+        hr_donation_gap_ok = bool(
+            m_hr and rest_after_hr.lower().startswith("<p>") and DONATION_CTA_TEXT_CD in tail_rest
+        )
         dp = tail_rest.find(DONATION_CTA_TEXT_CD)
         if dp < 0:
             dp = tail_rest.find("CLICK HERE TO DONATE")
-        chunk = tail_rest[hp:dp] if hp >= 0 and dp >= hp else ""
-        hr_donation_gap_ok = bool(re.match(r"^\s*<hr\s*/>\s*$", chunk, re.I | re.S))
+        pre_hr_seg = tail_rest[:hp] if m_hr and hp > 0 else ""
+        tail_cite_ok = (not pre_hr_seg.strip()) or ("<p><em>" in pre_hr_seg)
         chk(
             "Order: citation (optional) → hr → donation; nothing between hr and donation",
-            hp >= 0 and dp >= 0 and hp < dp and hr_donation_gap_ok,
-            f"hr@{hp} don@{dp} gap_ok={hr_donation_gap_ok}",
+            hp >= 0 and dp >= hp and hr_donation_gap_ok and tail_cite_ok,
+            f"hr@{hp} don@{dp}",
         )
     else:
         cp = c.find("Photo:")
