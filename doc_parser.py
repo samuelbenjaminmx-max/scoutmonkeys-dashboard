@@ -456,13 +456,22 @@ def parse_google_doc_intake(
     return out
 
 
-def intake_json_for_llm(intake: dict, max_chars: int = 48_000) -> str:
-    """Compact JSON for Anthropic user attachment (drop huge trace if needed)."""
+def intake_json_for_llm(
+    intake: dict,
+    max_chars: int = 48_000,
+    *,
+    include_critical_rules_prefix: bool = True,
+) -> str:
+    """Compact JSON for Anthropic user attachment (drop huge trace if needed).
+
+    When the pipeline already injects `CRITICAL_RULES.md` into the system prompt, pass
+    ``include_critical_rules_prefix=False`` to avoid duplicating it in the user JSON (saves tokens).
+    """
     slim = {k: v for k, v in intake.items() if k != "decision_trace"}
     slim["decision_trace_tail"] = (intake.get("decision_trace") or [])[-40:]
     s = json.dumps(slim, indent=2, ensure_ascii=False)
     prefix = ""
-    if CRITICAL_RULES_FILE.exists():
+    if include_critical_rules_prefix and CRITICAL_RULES_FILE.exists():
         cr = CRITICAL_RULES_FILE.read_text(encoding="utf-8", errors="replace")[:14_000]
         prefix = "CRITICAL_RULES_MD_START\n" + cr + "\nCRITICAL_RULES_MD_END\n\n"
     out = prefix + s

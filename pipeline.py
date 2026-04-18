@@ -14,6 +14,7 @@ import os
 import re
 import sys
 import textwrap
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -155,21 +156,40 @@ def _anthropic_messages(system: str, user: str, *, temperature: float = 0.2) -> 
         "system": system,
         "messages": [{"role": "user", "content": user}],
     }
-    r = requests.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={
-            "x-api-key": ANTHROPIC_KEY,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        },
-        json=payload,
-        timeout=300,
-    )
-    if not r.ok:
-        raise RuntimeError(f"Anthropic API error {r.status_code}: {r.text[:800]}")
-    data = r.json()
-    parts = data["content"][0]["text"]
-    return parts
+    headers = {
+        "x-api-key": ANTHROPIC_KEY,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    for attempt in range(10):
+        try:
+            r = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers=headers,
+                json=payload,
+                timeout=300,
+            )
+        except requests.RequestException as exc:
+            if attempt + 1 < 10:
+                w = min(90, 25 + attempt * 10)
+                print(f"[anthropic] network error ({exc!r}) — sleeping {w}s then retry ({attempt + 1}/9)…")
+                time.sleep(w)
+                continue
+            raise
+        if r.status_code == 429 and attempt + 1 < 10:
+            wait = min(180, 45 + attempt * 20)
+            print(f"[anthropic] 429 rate limit — sleeping {wait}s then retry ({attempt + 1}/9)…")
+            time.sleep(wait)
+            continue
+        if r.status_code in (502, 503, 504) and attempt + 1 < 10:
+            print(f"[anthropic] HTTP {r.status_code} — sleeping 30s then retry…")
+            time.sleep(30)
+            continue
+        if not r.ok:
+            raise RuntimeError(f"Anthropic API error {r.status_code}: {r.text[:800]}")
+        data = r.json()
+        return data["content"][0]["text"]
+    raise RuntimeError("Anthropic API error 429 after retries")
 
 
 def _extract_json_blob(text: str) -> dict:
@@ -267,15 +287,26 @@ def plan_from_gdoc_html(
     if intake:
         machine = (
             "\nMACHINE_INTAKE_JSON_START\n"
-            + doc_parser.intake_json_for_llm(intake, max_chars=50_000)
+            + doc_parser.intake_json_for_llm(
+                intake,
+                max_chars=16_000 if critical_rules else 50_000,
+                include_critical_rules_prefix=not critical_rules,
+            )
             + "\nMACHINE_INTAKE_JSON_END\n"
         )
 
+    # Anthropic org TPM can reject very large single messages; keep CRITICAL runs smaller.
+    doc_clip = 96_000 if critical_rules else 240_000
     user_parts = [
         "GOOGLE_DOC_HTML_START\n",
-        gdoc_html[:240_000],
+        gdoc_html[:doc_clip],
         "\nGOOGLE_DOC_HTML_END\n",
     ]
+    if critical_rules and len(gdoc_html) > doc_clip:
+        user_parts.append(
+            f"\nNOTE: Doc HTML was clipped to {doc_clip} characters for API limits; "
+            "use the visible portion (H1 and body should still be present).\n"
+        )
     if critical_rules:
         user_parts.append(
             "\nMACHINE_EXTRACTED_H1 (post_title MUST match exactly):\n"
@@ -737,12 +768,67 @@ def _cap_raw(media: dict) -> str:
 
 def _html_before_machine_tail(raw: str) -> str:
     """Strip machine citation + donation tail so body-only <a> tags can be audited."""
+    if "<!--scoutmonkeys-machine-tail-->" in raw:
+        return raw.split("<!--scoutmonkeys-machine-tail-->", 1)[0]
     m = re.search(r'<p><em><a href="https://www\.pexels\.com[^>]*>', raw, re.I)
     if m:
         return raw[: m.start()]
     if "CLICK HERE TO DONATE" in raw:
         return raw.split("CLICK HERE TO DONATE", 1)[0]
     return raw
+
+
+def normalize_cd_body_support_links_for_dofollow(site: dict, body_html: str) -> str:
+    """
+    Google Docs sometimes export in-body links to culturaldaily.com/support/ with
+    rel=nofollow. Sponsored QA requires dofollow body links; the appended donation tail
+    keeps its own nofollow. This only touches anchors whose href points at that support URL.
+    Does not change anchor text or href (CRITICAL wording preserved).
+    """
+    if site.get("key") != "cd" or not (body_html or "").strip():
+        return body_html
+    soup = BeautifulSoup(body_html, "html.parser")
+    changed = False
+    for a in soup.find_all("a"):
+        href = (a.get("href") or "").strip()
+        if not re.match(r"https?://", href, re.I):
+            continue
+        if "culturaldaily.com" not in href.lower() or "/support" not in href.lower():
+            continue
+        rel = a.get("rel")
+        rel_s = " ".join(rel) if isinstance(rel, list) else (rel or "")
+        if "nofollow" in rel_s.lower():
+            if isinstance(rel, list):
+                parts = [x for x in rel if str(x).lower() != "nofollow"]
+            else:
+                parts = [x for x in str(rel or "").split() if x.lower() != "nofollow"]
+            if parts:
+                a["rel"] = parts
+            elif "rel" in a.attrs:
+                del a["rel"]
+            changed = True
+        if (a.get("target") or "").lower() != "_blank":
+            a["target"] = "_blank"
+            changed = True
+        parent = getattr(a, "parent", None)
+        already_bold = bool(a.find("strong") or a.find("b")) or (
+            parent is not None and getattr(parent, "name", "") in ("strong", "b")
+        )
+        if not already_bold:
+            inner = a.decode_contents()
+            if inner.strip():
+                a.clear()
+                strong = soup.new_tag("strong")
+                frag = BeautifulSoup(inner, "html.parser")
+                container = frag.body if frag.body else frag
+                for child in list(container.children):
+                    if hasattr(child, "extract"):
+                        strong.append(child.extract())
+                    else:
+                        strong.append(child)
+                a.append(strong)
+                changed = True
+    return str(soup) if changed else body_html
 
 
 def verify_sponsored_body_links(html_before_tail: str) -> Tuple[bool, str]:
@@ -760,7 +846,10 @@ def verify_sponsored_body_links(html_before_tail: str) -> Tuple[bool, str]:
             return False, f"nofollow on {href[:80]}"
         if (a.get("target") or "").lower() != "_blank":
             return False, f"missing target=_blank on {href[:80]}"
-        if not (a.find("strong") or a.find("b")):
+        inner_bold = bool(a.find("strong") or a.find("b"))
+        parent = getattr(a, "parent", None)
+        outer_bold = parent is not None and getattr(parent, "name", "") in ("strong", "b")
+        if not inner_bold and not outer_bold:
             return False, f"missing bold wrapper on {href[:80]}"
     return True, ""
 
@@ -1245,6 +1334,8 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     if not cr:
         seo_title = seo_title[: site["seo_title_max"]]
 
+    body = normalize_cd_body_support_links_for_dofollow(site, body)
+
     print(f"[2] Title: {title}")
     used_client_hero = False
     pexels_used_query = ""
@@ -1300,7 +1391,7 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     social_id = int(social_media["id"])
     social_url = social_media.get("source_url") or ""
 
-    tail = cite + "\n<hr />\n" + donation_html_for(site)
+    tail = "<!--scoutmonkeys-machine-tail-->\n" + cite + "\n<hr />\n" + donation_html_for(site)
     content = body.rstrip() + "\n\n" + tail
 
     seo = {
