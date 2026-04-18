@@ -97,15 +97,21 @@ Optional: `AUDIT_MAX_POSTS=500` for a faster sample run.
   `https://docs.google.com/document/d/{id}/export?format=html`
 - The document must be readable without Google OAuth (typically **Anyone with the link can view**). Gmail OAuth env vars are reserved for future Drive/Docs API use.
 
+## Sponsored-only contract (absolute)
+
+1. **Every article is sponsored.** Every outbound `http(s):` link in the **article body** (before the machine tail) is a **paid dofollow** link:  
+   `<a href="URL" target="_blank"><strong>anchor</strong></a>` — **no** `rel="nofollow"`, **no** inline `color` styles, **no** “editorial link” exception.  
+   The **Pexels photographer profile** line in the machine tail is the only deliberate `nofollow` anchor (attribution, italic — see **Tail structure**).
+2. **Hero is always Pexels-backed.** If the client Doc has **no** usable hero image, the pipeline **must** still search Pexels (primary query plus fallbacks) and attach a resized hero as `featured_media`. **Never** publish a post without a hero image.
+
 ## Anthropic (Claude)
 
 - Claude turns Doc HTML into structured JSON (topic slug, body HTML, SEO fields, Pexels query).
-- Paid / sponsored links in body HTML must be:  
-  `<a href="URL" target="_blank"><strong>anchor</strong></a>` — **no** inline `color` styles, **no** `rel="nofollow"` on purchased links.
+- Body links follow the **Sponsored-only contract** above — not the historical mix of styles seen in older corpus posts.
 
 ## Pexels
 
-- Search via Pexels API; pick a candidate whose aspect ratio best matches the site hero ratio (wide banner for CD).
+- Search via Pexels API; pick a candidate whose aspect ratio best matches the site hero ratio (wide banner for CD). If the first query returns nothing usable, the pipeline **retries with broader fallback queries** until a hero is resolved (or fails loudly if Pexels is empty / `PEXELS_API_KEY` missing).
 - Hero + social JPEGs are generated from the **same** source frame (social is a separate crop).
 - Captions / alts: `Photo: {Photographer} via Pexels` with descriptive alt text (not keyword stuffing). **Hero and social alt text must match.**
 
@@ -136,7 +142,7 @@ End of HTML (machine order):
 
 ## QA
 
-- `pipeline.verify_post(...)` encodes the **`QA.md` checklist** (20 checks on CD). Do not mark a publish as “complete” if QA fails.
+- `pipeline.verify_post(...)` encodes the **`QA.md` checklist** (21 checks on CD). Do not mark a publish as “complete” if QA fails.
 - WhatsApp is sent when the draft is saved **after** the QA step runs (see `pipeline.run`); fix Twilio placeholders on Railway for real sends.
 
 ## DCR caveat

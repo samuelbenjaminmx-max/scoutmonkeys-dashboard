@@ -2,11 +2,15 @@
 
 Use this list before you call a publish **complete**. The automated `pipeline.verify_post()` on Cultural Daily mirrors these checks.
 
+## Absolute contract (sponsored-only)
+
+- [ ] **Every article is treated as sponsored / paid.** Every outbound `http(s):` link in the **article body** (excluding the machine Pexels citation tail) is a **dofollow paid** link: `<a href="…" target="_blank"><strong>…</strong></a>` — **no** `rel="nofollow"`, **no** inline `color:` on those anchors, **no** “editorial link” exception for body copy.
+- [ ] **Hero image:** If the client Google Doc provides **no** suitable hero, the pipeline **still** sources a **Pexels** image (primary query plus fallbacks) and sets WordPress **`featured_media`**. A draft must **never** be left without a hero.
+
 ## Identity & workflow
 
 - [ ] Post remains **`draft`** unless there is explicit separate approval to publish.
 - [ ] WordPress **author** matches the sponsored byline policy (`OUR_FRIENDS_AUTHOR_ID`, default **19** on CD).
-- [ ] **Commercial / paid links** follow the bold-anchor pattern (see `CLAUDE.md`).
 
 ## Images
 
@@ -14,7 +18,7 @@ Use this list before you call a publish **complete**. The automated `pipeline.ve
 
 - [ ] **CD:** hero file is exactly **975 × 250** pixels.
 - [ ] **DCR:** hero matches configured dimensions (defaults **1200 × 675** unless overridden).
-- [ ] Hero is attached as WordPress **`featured_media`** (not the social image).
+- [ ] Hero is attached as WordPress **`featured_media`** (not the social image). **Always** present — from Pexels when the Doc has no client hero (`CLAUDE.md`).
 - [ ] Attachment **title** matches `{PREFIX}-{topic}-hero`.
 - [ ] **Alt text** is a descriptive sentence (not bare keywords, not copied SEO title).
 - [ ] **Caption** begins with `Photo:` (colon) and credits Pexels properly.
@@ -36,7 +40,7 @@ Use this list before you call a publish **complete**. The automated `pipeline.ve
 
 ## Links
 
-- [ ] Purchased links use **`<a … target="_blank\"><strong>…</strong></a>`** with **no** `rel="nofollow"`.
+- [ ] **Every** outbound body `http(s):` link uses **`<a … target="_blank\"><strong>…</strong></a>`** with **no** `rel="nofollow"` (sponsored-only site — see absolute contract above). The italic Pexels **profile** citation in the machine tail is the only intentional `nofollow` anchor.
 - [ ] **No inline `color:` styles** on paid anchors (theme CSS owns color).
 
 ## Photo citation & page structure

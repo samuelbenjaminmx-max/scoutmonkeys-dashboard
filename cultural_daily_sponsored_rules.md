@@ -10,6 +10,22 @@ This document is the **normative rules engine** for Cultural Daily **sponsored /
 2. **This file** — corpus-informed rules: how to classify patterns, REST caveats, and aggregate drift from author **19** published posts.
 3. **Live WordPress** — when production behavior diverges, update docs and `pipeline.py` together.
 
+## Absolute pipeline rules (sponsored-only contract)
+
+These two rules override informal wording elsewhere and apply to **every** Scoutmonkeys → Cultural Daily article:
+
+1. **Sponsored-only body links** — Every article is paid placement copy. Every outbound `http(s):` link in the **article body** is a **commercial dofollow** anchor. Required shape:
+
+   `<a href="…" target="_blank"><strong>…</strong></a>`
+
+   **No** `rel="nofollow"` on those anchors. **No** inline `color:` styles on anchors. There is **no** “editorial link” exception for body copy.
+
+   **Tail carve-out:** The machine-appended Pexels **photographer profile** citation uses italic + `rel="nofollow noopener"` on that single attribution line only (`pipeline.py` / `QA.md`).
+
+2. **Hero image is mandatory** — WordPress **`featured_media`** must always be the pipeline-resized **Pexels** hero at **975 × 250** (CD). If the Google Doc includes **no** client hero, the pipeline **still** runs Pexels search with **fallback queries** until a usable frame is found. A post must **never** ship without a hero.
+
+**Parser note:** `doc_parser` classifies `pexels.com/@…` and `pexels.com/photo/…` (and `/videos/`) as **`D_A_05_pexels_reference`** (attribution), not a generic commercial paid anchor.
+
 ## Corpus note
 
 WP REST returns HTTP 500 for ?author=19 on this site; published posts were scanned and filtered client-side.
@@ -75,7 +91,7 @@ These flags mark divergence from the **pipeline / QA contract**, not “votes”
 
 ### Hero (CD)
 
-- Dimensions: **975 × 250**; WordPress **`featured_media`** references this hero only.
+- Dimensions: **975 × 250**; WordPress **`featured_media`** references this hero only (always sourced via **Pexels** when the client Doc has no usable inline hero).
 - Attachment title pattern: **`CD-{topic-slug}-hero`**.
 - Alt: descriptive sentence; caption `Photo: {Name} via Pexels`.
 
@@ -90,9 +106,9 @@ These flags mark divergence from the **pipeline / QA contract**, not “votes”
 - **`<hr />`** immediately after citation; **no** `<!--nextpage-->`.
 - Donation CTA after the rule (CD canonical copy in `pipeline.donation_html_for` / `CLAUDE.md`).
 
-### Paid links
+### Paid links (sponsored-only site)
 
-- `<a href="…" target="_blank"><strong>…</strong></a>` — **no** `rel="nofollow"` on purchased links; **no** inline `color` styles.
+- **Every** outbound body `http(s):` link is a paid dofollow anchor: `<a href="…" target="_blank"><strong>…</strong></a>` — **no** `rel="nofollow"`; **no** inline `color` styles; **no** editorial/plain treatment.
 
 ## Re-run audit + regenerate this file
 

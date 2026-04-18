@@ -17,6 +17,7 @@ import textwrap
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
+from bs4 import BeautifulSoup
 from PIL import Image, ImageOps
 
 import doc_parser
@@ -187,29 +188,36 @@ def plan_from_gdoc_html(
 ) -> dict:
     system = textwrap.dedent(
         f"""
-        You are the Scoutmonkeys editorial formatter for {site["site_label"]}.
+        You are the Scoutmonkeys sponsored-content formatter for {site["site_label"]}.
         Convert the supplied Google Docs HTML into pipeline JSON.
+
+        ABSOLUTE RULES (no exceptions):
+        1) Every article is sponsored. Every outbound http(s) link in article_body_html is a paid
+           dofollow commercial anchor: exactly
+           <a href="URL" target="_blank"><strong>anchor text</strong></a>
+           Never use rel="nofollow" on those links. Never invent an "editorial" treatment for body links.
+           (The pipeline adds the Pexels photo citation + donation tail separately — do not include them.)
+        2) If the Google Doc has no usable client hero image, you MUST still output a strong
+           hero_pexels_query (3–8 words) so the pipeline can always source a Pexels banner. Never omit
+           or empty that field.
 
         Output ONLY a JSON object (no markdown fences) with keys:
         - topic_slug: lowercase kebab-case, ascii, based on the article topic
         - post_title: concise H1-style title
         - article_body_html: WordPress-ready HTML for the article body ONLY (no tail citation/hr/donation).
           Use <p>, <h2>/<h3>, <ul>/<li>, <blockquote> as needed.
-          For purchased / sponsored outbound links use exactly:
-          <a href="URL" target="_blank"><strong>anchor text</strong></a>
-          Never add inline color styles. Never wrap the photo credit line here.
           CRITICAL: article_body_html must be valid inside JSON — escape every " as \\" and use \\n for
           newlines (no raw line breaks inside JSON string values).
         - focus_keyword: short phrase for SEO
         - seo_title: <= {site["seo_title_max"]} characters
         - meta_description: <= 160 characters, plain text
-        - hero_pexels_query: 3-6 word search query to find a wide banner image on Pexels
+        - hero_pexels_query: 3-8 word Pexels search query for a wide banner image (required; used even when the Doc has no images)
         - photographer_fallback_name: string
         - category_hint: short string like "travel", "film", "books", "food", "music", "theater", "art"
 
         If MACHINE_INTAKE_JSON is present, treat it as authoritative counts and link inventory from a
-        deterministic parser aligned with cultural_daily_sponsored_rules.md. Preserve paid-link URLs
-        and anchor meaning; fix structural issues (citation shape, bolding) in your HTML output.
+        deterministic parser aligned with cultural_daily_sponsored_rules.md. Preserve outbound URLs and
+        anchor meaning; rewrite every commercial body link into the canonical paid anchor shape above.
         """
     ).strip()
 
@@ -236,7 +244,9 @@ def plan_from_gdoc_html(
             "You repair JSON. Output ONLY one valid JSON object (no markdown fences), "
             "same keys and semantics as the Scoutmonkeys pipeline: topic_slug, post_title, "
             "article_body_html, focus_keyword, seo_title, meta_description, hero_pexels_query, "
-            "photographer_fallback_name, category_hint."
+            "photographer_fallback_name, category_hint. "
+            "Preserve the sponsored-site contract: every body http(s) link must be "
+            "<a href=… target=_blank><strong>…</strong></a> with no rel=nofollow; hero_pexels_query non-empty."
         )
         fix_user = (
             "The text below was meant to be one JSON object but it is invalid JSON (often "
@@ -263,6 +273,52 @@ def pexels_search(query: str, per_page: int = 15) -> List[dict]:
     )
     r.raise_for_status()
     return r.json().get("photos", [])
+
+
+def resolve_hero_pexels_photo(
+    site: dict, title: str, topic_slug: str, hero_q: str
+) -> Tuple[dict, str]:
+    """
+    Always return a Pexels photo dict and the query that produced it.
+    The client Doc may have zero images; the pipeline still must ship a hero from Pexels.
+    """
+    target_ratio = site["hero_w"] / site["hero_h"]
+    buckets: List[str] = []
+    q0 = (hero_q or "").strip()
+    if q0:
+        buckets.append(q0)
+    buckets.append((title or topic_slug or "culture arts").strip())
+    slug_words = " ".join(w for w in (topic_slug or "").split("-") if len(w) > 2)
+    if slug_words:
+        buckets.append(slug_words)
+    buckets.extend(
+        [
+            "wide city skyline banner",
+            "culture festival crowd",
+            "theater stage lights audience",
+            "art museum gallery interior",
+            "music concert crowd night",
+        ]
+    )
+    seen: set[str] = set()
+    tried: List[str] = []
+    for q in buckets:
+        q = re.sub(r"\s+", " ", q).strip()[:100]
+        if len(q) < 2 or q.lower() in seen:
+            continue
+        seen.add(q.lower())
+        tried.append(q)
+        photos = pexels_search(q)
+        if not photos:
+            continue
+        try:
+            return _pexels_pick_hero(photos, target_ratio), q
+        except RuntimeError:
+            continue
+    raise RuntimeError(
+        "Pipeline requires a Pexels hero image (set PEXELS_API_KEY and ensure Pexels returns results). "
+        f"Tried queries: {', '.join(tried[:12]) or '(none)'}"
+    )
 
 
 def _pexels_pick_hero(photos: List[dict], target_ratio: float) -> dict:
@@ -482,6 +538,39 @@ def _cap_raw(media: dict) -> str:
     return c.get("raw") or c.get("rendered") or ""
 
 
+def _html_before_machine_tail(raw: str) -> str:
+    """Strip machine citation + donation tail so body-only <a> tags can be audited."""
+    m = re.search(r'<p><em><a href="https://www\.pexels\.com[^>]*>', raw, re.I)
+    if m:
+        return raw[: m.start()]
+    if "CLICK HERE TO DONATE" in raw:
+        return raw.split("CLICK HERE TO DONATE", 1)[0]
+    return raw
+
+
+def verify_sponsored_body_links(html_before_tail: str) -> Tuple[bool, str]:
+    """
+    Every commercial outbound body link must be dofollow, target=_blank, bold inner anchor.
+    Pexels http(s) URLs in the fragment are skipped (attribution only).
+    """
+    soup = BeautifulSoup(html_before_tail, "html.parser")
+    for a in soup.find_all("a"):
+        href = (a.get("href") or "").strip()
+        if not re.match(r"https?://", href, re.I):
+            continue
+        if re.search(r"pexels\.com/", href, re.I):
+            continue
+        rel = a.get("rel")
+        rel_s = " ".join(rel) if isinstance(rel, list) else (rel or "")
+        if "nofollow" in rel_s.lower():
+            return False, f"nofollow on {href[:80]}"
+        if (a.get("target") or "").lower() != "_blank":
+            return False, f"missing target=_blank on {href[:80]}"
+        if not (a.find("strong") or a.find("b")):
+            return False, f"missing bold wrapper on {href[:80]}"
+    return True, ""
+
+
 def verify_post(
     site: dict,
     post_id: int,
@@ -512,6 +601,8 @@ def verify_post(
         f"{wp}/wp-json/cd-seo/v1/read?post_id={post_id}", auth=auth, timeout=30
     ).json()
     c = post["content"]["raw"]
+    pre_tail = _html_before_machine_tail(c)
+    sponsored_links_ok, sponsored_note = verify_sponsored_body_links(pre_tail)
 
     checks: List[Tuple[str, bool]] = []
 
@@ -587,6 +678,12 @@ def verify_post(
     og_ok = bool(og or og_cd)
     og_note = (og or og_cd)[-50:] if og_ok else "missing"
     chk("Social set as OG image (AIOSEO / cd-seo)", og_ok, og_note)
+
+    chk(
+        "Sponsored body links (bold, target=_blank, no nofollow)",
+        sponsored_links_ok,
+        sponsored_note,
+    )
 
     chk("Paid links bold in content", "<strong>" in c)
 
@@ -668,7 +765,8 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     summ = intake.get("summary") or {}
     print(
         f"     images={summ.get('image_count')} credits={summ.get('photo_credit_block_count')} "
-        f"links={summ.get('hyperlink_count')} paid_style={summ.get('paid_anchor_count')}"
+        f"links={summ.get('hyperlink_count')} canon_paid={summ.get('paid_anchor_count')} "
+        f"sponsored_targets={summ.get('sponsored_body_link_count')}"
     )
     flags = intake.get("contract_flags") or []
     if flags:
@@ -687,9 +785,9 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
 
     print(f"[2] Title: {title}")
     print(f"[3] Pexels search: {hero_q!r}")
-    photos = pexels_search(hero_q)
-    target_ratio = site["hero_w"] / site["hero_h"]
-    hero_pick = _pexels_pick_hero(photos, target_ratio)
+    hero_pick, pexels_used_query = resolve_hero_pexels_photo(site, title, topic, hero_q)
+    if pexels_used_query != hero_q:
+        print(f"[3b] Pexels fallback query succeeded: {pexels_used_query!r}")
     p_name, p_profile, _p_page = photographer_meta(hero_pick)
     fb = (plan.get("photographer_fallback_name") or "").strip()
     if fb:
