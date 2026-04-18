@@ -23,9 +23,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import requests
-from bs4 import BeautifulSoup, Comment
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from corpus_html_features import analyze_html  # noqa: E402
 
 
 def load_env() -> None:
@@ -74,67 +77,6 @@ def fetch_posts(wp_url: str, author_id: int, auth: Tuple[str, str]) -> List[dict
         if page % 10 == 0:
             print(f"  …list page {page}/{total_pages}", file=sys.stderr)
     return posts
-
-
-def _h2_structure_signature(h2) -> str:
-    """Tag skeleton for H2 (text replaced with *)."""
-    parts: List[str] = ["h2"]
-    for child in h2.children:
-        if isinstance(child, Comment):
-            continue
-        if getattr(child, "name", None):
-            parts.append(child.name or "?")
-        elif str(child).strip():
-            parts.append("#text")
-    return ">".join(parts)
-
-
-def analyze_html(html: str) -> Dict[str, Any]:
-    """Per-post metrics (no storage of full HTML)."""
-    if not (html or "").strip():
-        return {}
-    raw = html
-    soup = BeautifulSoup(html, "html.parser")
-    h2_total = 0
-    h2_numbered = 0
-    h2_sigs: Counter = Counter()
-    for h2 in soup.find_all("h2"):
-        h2_total += 1
-        t = h2.get_text(" ", strip=True)
-        if t and re.match(r"^\s*\d+\s*[\.\)\-:]\s+\S", t):
-            h2_numbered += 1
-        h2_sigs[_h2_structure_signature(h2)] += 1
-
-    tag_names: Counter = Counter()
-    for el in soup.find_all(True):
-        tag_names[el.name.lower()] += 1
-
-    ul_n = len(soup.find_all("ul"))
-    ol_n = len(soup.find_all("ol"))
-    li_n = len(soup.find_all("li"))
-
-    # Adjacent block-tag gaps in serialized HTML (WP often stores compactly).
-    gap_single = len(re.findall(r">\s*\n\s*<", raw))
-    gap_double = len(re.findall(r">\s*\n\s*\n\s*<", raw))
-    gap_triple = len(re.findall(r">\s*\n\s*\n\s*\n\s*<", raw))
-
-    a_in_p = sum(1 for a in soup.find_all("a") if a.find_parent("p") is not None)
-    strong_in_p = sum(1 for s in soup.find_all("strong") if s.find_parent("p") is not None)
-
-    return {
-        "h2_total": h2_total,
-        "h2_numbered": h2_numbered,
-        "h2_sigs": h2_sigs,
-        "tag_names": tag_names,
-        "ul": ul_n,
-        "ol": ol_n,
-        "li": li_n,
-        "gap_single": gap_single,
-        "gap_double": gap_double,
-        "gap_triple": gap_triple,
-        "anchors_in_p": a_in_p,
-        "strong_in_p": strong_in_p,
-    }
 
 
 def main() -> None:

@@ -2479,6 +2479,22 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     manual_flags.append("article_body_source:google_doc_export")
     body = extract_google_doc_body_inner_html(ghtml)
     if site["key"] == "cd":
+        try:
+            from corpus_compare import compare_doc_to_corpora
+
+            cc = compare_doc_to_corpora(body)
+            wns = cc.get("warnings") or []
+            if wns:
+                print(
+                    f"[1c] Corpus scorecard ({len(wns)} note(s); "
+                    f"data/gdoc_intake_profile.json vs audit_format_profile.json)…"
+                )
+                for w in wns[:12]:
+                    print(f"     ⚠ {w}")
+                manual_flags.append("corpus_scorecard:see_console")
+        except Exception as ex:
+            print(f"[1c] Corpus scorecard skipped: {ex}")
+    if site["key"] == "cd":
         body = normalize_cd_body_vertical_spacing(body)
     if site["key"] == "cd" and client_src:
         body = remove_client_hero_image_from_body_html(body, client_src)
