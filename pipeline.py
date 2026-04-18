@@ -635,11 +635,45 @@ def strip_duplicate_lead_title_from_body_html(body_html: str, h1_text: str) -> s
     return str(soup)
 
 
+def _p_is_gdoc_spacing_only(par: Any) -> bool:
+    """
+    True when ``<p>`` contributes no visible text — Google Docs often emits empty
+    paragraphs, ``<p><br></p>``, ``<p>&nbsp;</p>``, or empty wrapped spans that
+    create double spacing in WordPress.
+    """
+    if par is None or getattr(par, "name", "") != "p":
+        return False
+    if par.find("img"):
+        return False
+    text = par.get_text(separator="", strip=False)
+    text = unicodedata.normalize("NFKC", text)
+    text = text.replace("\xa0", " ").replace("\u200b", "").replace("\ufeff", "")
+    text = re.sub(r"[\s\u00a0]+", "", text)
+    return len(text) == 0
+
+
 def normalize_cd_body_vertical_spacing(html: str) -> str:
-    """At most one blank line between serialized elements (no runs of 3+ newlines between tags)."""
+    """
+    Google Doc → WordPress spacing hygiene (run early on CD body HTML):
+
+    1. Remove empty ``<p></p>`` and spacer paragraphs (``<br>`` / ``&nbsp;`` only).
+    2. Collapse consecutive blank lines in the serialized HTML string.
+
+    Does not alter paragraphs that contain real text or non-empty links.
+    """
     if not html:
         return html
-    s = re.sub(r">\s*\n(?:\s*\n){2,}\s*<", ">\n\n<", html)
+    soup = BeautifulSoup(html, "html.parser")
+    for _ in range(50):
+        removed = False
+        for p in list(soup.find_all("p")):
+            if _p_is_gdoc_spacing_only(p):
+                p.decompose()
+                removed = True
+        if not removed:
+            break
+    s = str(soup)
+    s = re.sub(r">\s*\n(?:\s*\n){2,}\s*<", ">\n\n<", s)
     s = re.sub(r"\n{3,}", "\n\n", s)
     s = re.sub(r"(</p>)\s*\n\s*\n\s*\n+", r"\1\n\n", s)
     s = re.sub(r"(</h[12]>)\s*\n\s*\n\s*\n+", r"\1\n\n", s)
@@ -1882,6 +1916,7 @@ def remediate_latest_cd_draft() -> dict:
     else:
         pre_body = raw_content
         tail_suffix = ""
+    pre_body = normalize_cd_body_vertical_spacing(pre_body)
     pre2 = normalize_cd_body_support_links_for_dofollow(site, pre_body)
     pre2 = cd_reupload_inline_body_images(
         site,
@@ -2156,6 +2191,8 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     print("[2a] Article body from Google Doc HTML export (Claude article_body_html ignored).")
     manual_flags.append("article_body_source:google_doc_export")
     body = extract_google_doc_body_inner_html(ghtml)
+    if site["key"] == "cd":
+        body = normalize_cd_body_vertical_spacing(body)
     if site["key"] == "cd" and client_src:
         body = remove_client_hero_image_from_body_html(body, client_src)
     if site["key"] == "cd" and cr and machine_h1:
