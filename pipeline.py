@@ -113,12 +113,19 @@ def _refresh_sites() -> None:
 
 _refresh_sites()
 
-# Canonical tail pieces (QA.md)
-DONATION_HTML_CD = textwrap.dedent(
-    """\
-    <p><strong><a href="https://www.culturaldaily.com/support/" target="_blank" rel="nofollow noopener">CLICK HERE TO DONATE NOW TO SUPPORT NONPROFIT JOURNALISM AT CULTURAL DAILY!</a></strong></p>
-    """
-).strip()
+# Canonical CD donation CTA (exact anchor text — CRITICAL_RULES / operator contract)
+DONATION_CTA_TEXT_CD = (
+    "CLICK HERE TO DONATE IN SUPPORT OF OUR NONPROFIT COVERAGE OF ARTS AND CULTURE"
+)
+DONATION_HTML_CD = (
+    "<p><strong>"
+    f'<a href="https://www.culturaldaily.com/support/" target="_blank" rel="nofollow noopener">'
+    f"{DONATION_CTA_TEXT_CD}</a>"
+    "</strong></p>"
+)
+
+# When client image has no traceable credit, no HTML citation paragraph is emitted — only this marker before <hr />.
+CLIENT_CITE_NONE_MARKER = "<!--scoutmonkeys-client-cite-none-->"
 
 
 def donation_html_for(site: dict) -> str:
@@ -299,7 +306,8 @@ def plan_from_gdoc_html(
                   or “improvement”. Only minimal HTML structure fixes and wrapping body http(s) links as
                   <a href="URL" target="_blank"><strong>exact anchor text</strong></a> without changing words.
                 - Do NOT alter donation text — the pipeline appends the canonical donation block; never invent or rewrite it.
-                - focus_keyword: at most 4 words, compact core subject only (never the full H1).
+                - focus_keyword: at most 4 words, compact core subject only (never the full H1); the pipeline may shorten further if content relevance scores low.
+                - seo_title (JSON field): on Cultural Daily with CRITICAL_RULES, use only the first 60 characters of MACHINE_EXTRACTED_H1 (display cap); post_title must still be the full H1.
                 - meta_description: <=160 chars; use only wording supported by the supplied HTML
                   (no new factual claims).
                 - category_hint must be exactly: Check This Out (never Sponsored).
@@ -366,7 +374,8 @@ def plan_from_gdoc_html(
             "photographer_fallback_name, category_hint. "
             "Hard site rule: every body http(s) link is paid dofollow — "
             "<a href=… target=_blank><strong>…</strong></a> with no rel=nofollow. "
-            "If CRITICAL_RULES applied, post_title must match MACHINE_EXTRACTED_H1 and hero_pexels_query may be empty when client image exists."
+            "If CRITICAL_RULES applied, post_title must match MACHINE_EXTRACTED_H1 and hero_pexels_query may be empty when client image exists. "
+            "On Cultural Daily, seo_title must be the first 60 characters of that H1 only."
         )
         fix_user = (
             "The text below was meant to be one JSON object but it is invalid JSON (often "
@@ -468,13 +477,15 @@ def _download_image(url: str) -> Image.Image:
     return Image.open(io.BytesIO(r.content)).convert("RGB")
 
 
-def _resize_cover_ceil(img: Image.Image, tw: int, th: int) -> Image.Image:
+def _resize_cover_exact_floor(img: Image.Image, tw: int, th: int) -> Image.Image:
     """
-    Cover-crop to exact tw x th using ImageOps.fit semantics.
-    CLAUDE.md: prefer ceil/max guards for dimension stability — Pillow handles this internally.
+    Cover-crop to exact ``tw``×``th`` using Pillow ``ImageOps.fit``.
+
+    Target dimensions use ``int(math.floor(...))`` only — never round up — so outputs stay
+    exactly **975×250** / **1920×1400** (avoids off-by-one e.g. 1920×1401).
     """
-    tw = max(1, int(math.ceil(tw)))
-    th = max(1, int(math.ceil(th)))
+    tw = max(1, int(math.floor(float(tw))))
+    th = max(1, int(math.floor(float(th))))
     return ImageOps.fit(img, (tw, th), method=Image.Resampling.LANCZOS)
 
 
@@ -482,8 +493,8 @@ def build_resized_pair(site: dict, hero_photo: dict) -> Tuple[Image.Image, Image
     src = hero_photo.get("src") or {}
     url = src.get("original") or src.get("large2x") or src.get("large")
     img = _download_image(url)
-    hero = _resize_cover_ceil(img, site["hero_w"], site["hero_h"])
-    social = _resize_cover_ceil(img, site["social_w"], site["social_h"])
+    hero = _resize_cover_exact_floor(img, site["hero_w"], site["hero_h"])
+    social = _resize_cover_exact_floor(img, site["social_w"], site["social_h"])
     return hero, social
 
 
@@ -499,7 +510,7 @@ def load_critical_rules_text(max_chars: int = 28_000) -> str:
 
 def audit_conformity_machine_note() -> str:
     """
-    CRITICAL_RULES §12 — remind the planner that output must conform to the audited Our Friends corpus.
+    CRITICAL_RULES §13 — remind the planner that output must conform to the audited Our Friends corpus.
     Does not load the full JSON (large); uses post_count from the file header when present.
     """
     p = OUR_FRIENDS_AUDIT_JSON
@@ -574,15 +585,16 @@ def _pil_image_from_src(src: str) -> Image.Image:
 
 
 def build_resized_pair_from_pil(site: dict, img: Image.Image) -> Tuple[Image.Image, Image.Image]:
-    hero = _resize_cover_ceil(img, site["hero_w"], site["hero_h"])
-    social = _resize_cover_ceil(img, site["social_w"], site["social_h"])
+    hero = _resize_cover_exact_floor(img, site["hero_w"], site["hero_h"])
+    social = _resize_cover_exact_floor(img, site["social_w"], site["social_h"])
     return hero, social
 
 
 def attempt_image_provenance(img: Image.Image) -> Tuple[Optional[str], str, List[str]]:
     """CRITICAL_RULES §4 — hook for reverse search / EXIF metadata."""
     _ = img
-    return None, "Client-supplied image", ["reverse_image_lookup_not_implemented"]
+    # No URL and empty label → blank captions / no placeholder (CRITICAL_RULES).
+    return None, "", ["reverse_image_lookup_not_implemented"]
 
 
 def compact_focus_keyword(raw: str, *, max_words: int = 4, max_len: int = 48) -> str:
@@ -593,6 +605,60 @@ def compact_focus_keyword(raw: str, *, max_words: int = 4, max_len: int = 48) ->
     if len(words) > max_words:
         raw = " ".join(words[:max_words])
     return raw[:max_len].rstrip(" -–—")
+
+
+def focus_keyword_content_score(keyphrase: str, haystack: str) -> float:
+    """
+    Lightweight relevance score (0–100) of ``keyphrase`` against combined article text.
+    Used to prefer shorter phrases (e.g. ``bone broth``) when a longer keyphrase scores low.
+    """
+    k = (keyphrase or "").strip().lower()
+    h = (haystack or "").lower()
+    if not k or not h:
+        return 0.0
+    if k in h:
+        return min(100.0, 72.0 + min(28.0, float(h.count(k)) * 6.0))
+    parts = [w for w in k.split() if len(w) > 1]
+    if not parts:
+        return 0.0
+    hits = sum(1 for w in parts if w in h)
+    return min(99.0, (hits / len(parts)) * 88.0)
+
+
+def refine_focus_keyword_for_content(
+    focus: str,
+    *,
+    body: str,
+    doc_html: str,
+    title: str,
+    topic_slug: str,
+) -> str:
+    """If score < 70, try progressively shorter keyphrases; keep best compact candidate."""
+    hay = f"{body}\n{doc_html}\n{title}"
+    base = compact_focus_keyword(focus)
+    if not base:
+        base = compact_focus_keyword(topic_slug.replace("-", " "))
+    candidates: List[str] = []
+    words = base.split()
+    for n in range(len(words), 0, -1):
+        candidates.append(" ".join(words[:n]))
+    if words:
+        candidates.append(words[0])
+    candidates.append(compact_focus_keyword(topic_slug.replace("-", " ")))
+    seen: set[str] = set()
+    best = base
+    best_score = focus_keyword_content_score(base, hay)
+    for cand in candidates:
+        c2 = compact_focus_keyword(cand)
+        if not c2 or c2 in seen:
+            continue
+        seen.add(c2)
+        sc = focus_keyword_content_score(c2, hay)
+        if sc > best_score or (sc >= 70.0 and best_score < 70.0):
+            best, best_score = c2, sc
+        if best_score >= 70.0:
+            break
+    return best
 
 
 def derive_meta_from_gdoc_first_paragraph(ghtml: str, max_len: int = 160) -> str:
@@ -608,13 +674,21 @@ def derive_meta_from_gdoc_first_paragraph(ghtml: str, max_len: int = 160) -> str
 
 
 def client_photo_citation_html(credit_url: Optional[str], credit_label: str) -> str:
-    label = (credit_label or "Client-supplied image").strip()
+    """
+    HTML citation for client-sourced hero. When there is no credit URL and no label,
+    returns empty string (no placeholder paragraph — CRITICAL_RULES).
+    """
+    label = (credit_label or "").strip()
+    if not credit_url and not label:
+        return ""
     if credit_url:
+        inner = f"Photo: {label}" if label else "Photo"
         return (
             f'<p><em><a href="{credit_url}" target="_blank" rel="nofollow noopener">'
-            f"Photo: {label}</a></em></p>"
+            f"{inner}</a></em></p>"
         )
-    return f"<p><em>Photo: {label}</em></p>"
+    inner = f"Photo: {label}" if label else "Photo"
+    return f"<p><em>{inner}</em></p>"
 
 
 def resolve_check_this_out_category(site: dict) -> int:
@@ -971,7 +1045,14 @@ def verify_post(
         chk(f"Post title ≤{title_max} chars", len(raw_title) <= title_max, f"{len(raw_title)} chars")
 
     seo_title = seo_r.get("aioseo_db", {}).get("title") or ""
-    if critical_rules and expect_exact_title:
+    if critical_rules and expect_exact_title and site.get("key") == "cd":
+        exp_seo = (expect_exact_title or "")[: int(site["title_max"])]
+        chk(
+            "SEO title is first 60 chars of H1 (CRITICAL_RULES / CD display)",
+            (seo_title or "") == exp_seo,
+            f"{len(seo_title)} chars vs expected {len(exp_seo)}",
+        )
+    elif critical_rules and expect_exact_title:
         chk(
             "SEO title matches H1 (CRITICAL_RULES)",
             seo_title == expect_exact_title or seo_title == raw_title,
@@ -1024,7 +1105,14 @@ def verify_post(
     chk("Hero alt text descriptive (>10 chars)", len(h_alt) > 10, f'"{h_alt[:50]}"')
 
     h_cap = _cap_raw(hero)
-    chk("Hero caption starts 'Photo:'", h_cap.startswith("Photo:"), f'"{h_cap}"')
+    if critical_rules:
+        chk(
+            "Hero caption empty or Photo credit (CRITICAL_RULES)",
+            h_cap == "" or h_cap.startswith("Photo:"),
+            repr(h_cap[:80]),
+        )
+    else:
+        chk("Hero caption starts 'Photo:'", h_cap.startswith("Photo:"), f'"{h_cap}"')
 
     st = soc.get("title") or {}
     s_title = st.get("raw") or st.get("rendered") or ""
@@ -1038,7 +1126,14 @@ def verify_post(
     chk("Social alt matches hero", s_alt == h_alt)
 
     s_cap = _cap_raw(soc)
-    chk("Social caption starts 'Photo:'", s_cap.startswith("Photo:"), f'"{s_cap}"')
+    if critical_rules:
+        chk(
+            "Social caption empty or Photo credit (CRITICAL_RULES)",
+            s_cap == "" or s_cap.startswith("Photo:"),
+            repr(s_cap[:80]),
+        )
+    else:
+        chk("Social caption starts 'Photo:'", s_cap.startswith("Photo:"), f'"{s_cap}"')
 
     aioseo_post = requests.get(
         f"{wp}/wp-json/aioseo/v1/post?postId={post_id}", auth=auth, timeout=30
@@ -1072,19 +1167,36 @@ def verify_post(
         )
     )
     cite_client_plain = bool(re.search(r"<p><em>Photo:\s*.+</em></p>", c, re.I))
-    cite_ok = cite_pexels or cite_other or cite_client_plain
-    chk("Citation: italic+hyperlinked, not bold", cite_ok)
+    cite_client_none = CLIENT_CITE_NONE_MARKER in c
+    cite_ok = cite_pexels or cite_other or cite_client_plain or cite_client_none
+    chk("Citation (Pexels / client / none-marker)", cite_ok)
     chk("Citation NOT bold", "<strong>Photo:" not in c)
 
     chk("Horizontal rule <hr />", "<hr />" in c)
     chk("No <!--nextpage--> page break", "<!--nextpage-->" not in c)
 
-    chk("Donation box present", "CLICK HERE TO DONATE" in c)
+    chk(
+        "Donation box present (canonical CD CTA)",
+        (DONATION_CTA_TEXT_CD in c) or ("CLICK HERE TO DONATE" in c),
+        "",
+    )
 
-    cp = c.find("Photo:")
-    hp = c.find("<hr />")
-    dp = c.find("CLICK HERE TO DONATE")
-    chk("Order: citation → hr → donation", 0 <= cp < hp < dp, f"{cp}→{hp}→{dp}")
+    if "<!--scoutmonkeys-machine-tail-->" in c:
+        tail_rest = c.split("<!--scoutmonkeys-machine-tail-->", 1)[1]
+        hp = tail_rest.find("<hr />")
+        dp = tail_rest.find(DONATION_CTA_TEXT_CD)
+        if dp < 0:
+            dp = tail_rest.find("CLICK HERE TO DONATE")
+        chk(
+            "Order: machine tail → hr → donation",
+            hp >= 0 and dp >= 0 and hp < dp,
+            f"hr@{hp} don@{dp}",
+        )
+    else:
+        cp = c.find("Photo:")
+        hp = c.find("<hr />")
+        dp = c.find("CLICK HERE TO DONATE")
+        chk("Order: citation → hr → donation", 0 <= cp < hp < dp, f"{cp}→{hp}→{dp}")
 
     passed = sum(1 for _, ok in checks if ok)
     total = len(checks)
@@ -1222,11 +1334,11 @@ def remediate_latest_cd_draft() -> dict:
 
     if regen_social:
         pil = _download_image(hero_url).convert("RGB")
-        social_img = _resize_cover_ceil(pil, site["social_w"], site["social_h"])
+        social_img = _resize_cover_exact_floor(pil, site["social_w"], site["social_h"])
         assert social_img.size == (site["social_w"], site["social_h"]), social_img.size
         cap = _cap_raw(hero)
-        if not cap.startswith("Photo:"):
-            cap = f"Photo: {cap}" if cap else "Photo: Cultural Daily"
+        if cap and not cap.startswith("Photo:"):
+            cap = f"Photo: {cap}"
         prefix = site["prefix"]
         social_fn = f"{prefix}-{slug}-social.jpg"
         sm = wp_upload_jpeg(
@@ -1268,7 +1380,7 @@ def remediate_latest_cd_draft() -> dict:
         meta = (raw_title[:157] + "...") if len(raw_title) > 160 else raw_title
     seo = {
         "focus_keyword": focus,
-        "seo_title": raw_title,
+        "seo_title": (raw_title or "")[: int(site["title_max"])],
         "meta_description": meta,
         "excerpt": meta,
     }
@@ -1277,9 +1389,9 @@ def remediate_latest_cd_draft() -> dict:
         post_id,
         seo,
         social_url,
-        seo_title_max=500,
+        seo_title_max=60,
     )
-    actions.append("aioseo+cd-seo: focus compact, seo_title=post title, og_image set")
+    actions.append("aioseo+cd-seo: focus compact, seo_title=H1[:60], og_image set")
 
     qa = verify_post(
         site,
@@ -1410,7 +1522,11 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         focus = compact_focus_keyword(focus or topic.replace("-", " "))
         if not meta:
             meta = derive_meta_from_gdoc_first_paragraph(ghtml)[:160]
-        seo_title = title
+        # SEO title for plugins / display: first 60 chars of H1 only; post title stays full H1.
+        if site["key"] == "cd":
+            seo_title = (title or "")[: int(site["title_max"])]
+        else:
+            seo_title = title
         cat_hint = "Check This Out"
         if client_src:
             hero_q = ""
@@ -1419,10 +1535,15 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         seo_title = seo_title[: site["seo_title_max"]]
 
     body = normalize_cd_body_support_links_for_dofollow(site, body)
+    if cr and site["key"] == "cd":
+        focus = refine_focus_keyword_for_content(
+            focus, body=body, doc_html=ghtml, title=title, topic_slug=topic
+        )
 
     print(f"[2] Title: {title}")
     used_client_hero = False
     pexels_used_query = ""
+    client_unknown_credit = False
 
     if client_src:
         print(f"[3] Client image from Doc — using as hero/social (CRITICAL_RULES); Pexels hero skipped")
@@ -1433,7 +1554,12 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         p_name = prov_label
         p_profile = prov_url or "https://www.pexels.com/"
         cite = client_photo_citation_html(prov_url, prov_label)
-        cap = f"Photo: {prov_label}"
+        client_unknown_credit = not prov_url and not (prov_label or "").strip()
+        cap = (
+            ""
+            if client_unknown_credit
+            else (f"Photo: {(prov_label or '').strip()}".strip() or "Photo")
+        )
         used_client_hero = True
     else:
         print(f"[3] Pexels search: {hero_q!r}")
@@ -1456,7 +1582,12 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
 
     prefix = site["prefix"]
     slug = topic
-    alt = title if cr else f"{title} — banner image highlighting the story's subject matter."
+    if client_unknown_credit:
+        alt = title
+    elif cr:
+        alt = title
+    else:
+        alt = f"{title} — banner image highlighting the story's subject matter."
 
     hero_fn = f"{prefix}-{slug}-hero.jpg"
     social_fn = f"{prefix}-{slug}-social.jpg"
@@ -1475,7 +1606,16 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     social_id = int(social_media["id"])
     social_url = social_media.get("source_url") or ""
 
-    tail = "<!--scoutmonkeys-machine-tail-->\n" + cite + "\n<hr />\n" + donation_html_for(site)
+    cite_html = (cite or "").strip()
+    if cite_html:
+        tail = "<!--scoutmonkeys-machine-tail-->\n" + cite_html + "\n<hr />\n" + donation_html_for(site)
+    else:
+        tail = (
+            "<!--scoutmonkeys-machine-tail-->\n"
+            + CLIENT_CITE_NONE_MARKER
+            + "\n<hr />\n"
+            + donation_html_for(site)
+        )
     content = body.rstrip() + "\n\n" + tail
 
     seo = {
@@ -1516,7 +1656,7 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         post_id,
         seo,
         social_url,
-        seo_title_max=(500 if cr else None),
+        seo_title_max=(60 if cr and site["key"] == "cd" else (500 if cr else None)),
     )
 
     sid = resolve_social_id(site["wp_url"], (site["wp_user"], site["wp_pass"]), post_id, hero_id)
