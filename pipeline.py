@@ -249,11 +249,14 @@ def plan_from_gdoc_html(
                 - article_body_html MUST preserve source wording. No paraphrase, summary, tone rewrite,
                   or “improvement”. Only minimal HTML structure fixes and wrapping body http(s) links as
                   <a href="URL" target="_blank"><strong>exact anchor text</strong></a> without changing words.
+                - Do NOT alter donation text — the pipeline appends the canonical donation block; never invent or rewrite it.
                 - focus_keyword: at most 4 words, compact core subject only (never the full H1).
                 - meta_description: <=160 chars; use only wording supported by the supplied HTML
                   (no new factual claims).
-                - category_hint must be exactly: Check This Out
+                - category_hint must be exactly: Check This Out (never Sponsored).
                 - If MACHINE_CLIENT_IMAGE_SRC is not "(none)", set hero_pexels_query to "" (empty string).
+                - Social image is mandatory: the pipeline always generates and sets OG/social; never omit.
+                - Social output must be exactly 1920×1400 pixels (handled by the pipeline resize — do not suggest other sizes).
                 """
             ).strip()
         )
@@ -662,6 +665,7 @@ def push_aioseo_and_cdseo(
     # 1) AIOSEO custom endpoint (Cultural Daily)
     body = {
         "postId": post_id,
+        "post_id": post_id,
         "title": seo.get("seo_title") or "",
         "description": seo.get("meta_description") or "",
         "og_title": seo.get("seo_title") or "",
@@ -940,6 +944,203 @@ def verify_post(
     return passed == total
 
 
+def _apply_repo_dotenv_for_cli() -> None:
+    """Load `REPO_ROOT/.env` into os.environ (used only by CLI remediate — not `run()`)."""
+    p = REPO_ROOT / ".env"
+    if not p.is_file():
+        return
+    for raw in p.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        k, v = k.strip(), v.strip()
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+            v = v[1:-1]
+        os.environ[k] = v
+
+
+def _parse_topic_slug_from_attachment_title(title: str, prefix: str) -> str:
+    t = (title or "").strip()
+    pre = f"{prefix}-"
+    for suf in ("-hero", "-social"):
+        tl, pl, sl = t.lower(), pre.lower(), suf.lower()
+        if tl.startswith(pl) and tl.endswith(sl):
+            mid = t[len(pre) : -len(suf)]
+            return (mid.strip("-") or "topic").lower()
+    return "topic"
+
+
+def remediate_latest_cd_draft() -> dict:
+    """
+    Repair the newest Cultural Daily (Our Friends) draft per CRITICAL_RULES when possible:
+    force **Check This Out** category, compact focus keyphrase, SEO title = post title,
+    ensure OG social URL is set, and re-upload social JPEG at exact 1920×1400 from the
+    current featured hero if the existing social attachment is missing or wrong size.
+    """
+    if not critical_rules_active():
+        raise RuntimeError("CRITICAL_RULES.md is missing.")
+    _apply_repo_dotenv_for_cli()
+    _refresh_sites()
+    site = SITES["cd"]
+    if not site.get("wp_pass"):
+        raise RuntimeError("WP_USER / WP_PASS not set (add .env or export credentials).")
+
+    wp, auth = wp_auth(site)
+    r = requests.get(
+        f"{wp}/wp-json/wp/v2/posts",
+        auth=auth,
+        params={
+            "status": "draft",
+            "per_page": 20,
+            "orderby": "date",
+            "order": "desc",
+        },
+        timeout=30,
+    )
+    r.raise_for_status()
+    posts = r.json()
+    aid = int(site["author_id"])
+    ours = [p for p in posts if int(p.get("author") or 0) == aid]
+    if not ours and posts:
+        ours = posts
+        print(
+            f"[remediate] No drafts with author={aid} in latest page (CD REST ?author= is unreliable); "
+            f"using newest draft author={posts[0].get('author')}."
+        )
+    if not ours:
+        raise RuntimeError("No drafts returned from WordPress.")
+    post_id = int(ours[0]["id"])
+    pe = requests.get(
+        f"{wp}/wp-json/wp/v2/posts/{post_id}?context=edit",
+        auth=auth,
+        timeout=30,
+    )
+    pe.raise_for_status()
+    post = pe.json()
+    hero_id = int(post.get("featured_media") or 0)
+    if not hero_id:
+        raise RuntimeError(f"Post {post_id} has no featured_media — cannot remediate images/SEO.")
+
+    hero = requests.get(
+        f"{wp}/wp-json/wp/v2/media/{hero_id}?context=edit",
+        auth=auth,
+        timeout=30,
+    ).json()
+    hero_url = (hero.get("source_url") or "").strip()
+    if not hero_url:
+        raise RuntimeError("Featured image has no source_url")
+
+    h_title = (hero.get("title") or {}).get("raw") or (hero.get("title") or {}).get("rendered") or ""
+    slug = _parse_topic_slug_from_attachment_title(h_title, site["prefix"])
+    raw_title = (post.get("title") or {}).get("raw") or (post.get("title") or {}).get("rendered") or ""
+    hero_alt = (hero.get("alt_text") or "").strip()
+    alt = hero_alt or raw_title.strip() or "Article"
+
+    sid = resolve_social_id(wp, auth, post_id, hero_id)
+    regen_social = False
+    if not sid:
+        regen_social = True
+    else:
+        soc = requests.get(
+            f"{wp}/wp-json/wp/v2/media/{int(sid)}?context=edit",
+            auth=auth,
+            timeout=30,
+        ).json()
+        sw = int((soc.get("media_details") or {}).get("width") or 0)
+        sh = int((soc.get("media_details") or {}).get("height") or 0)
+        if sw != site["social_w"] or sh != site["social_h"]:
+            regen_social = True
+
+    actions: List[str] = []
+    cat_id = resolve_check_this_out_category(site)
+    rp = requests.post(
+        f"{wp}/wp-json/wp/v2/posts/{post_id}",
+        auth=auth,
+        json={"categories": [cat_id]},
+        timeout=60,
+    )
+    rp.raise_for_status()
+    actions.append(f"categories=[{cat_id}] Check This Out")
+
+    if regen_social:
+        pil = _download_image(hero_url).convert("RGB")
+        social_img = _resize_cover_ceil(pil, site["social_w"], site["social_h"])
+        assert social_img.size == (site["social_w"], site["social_h"]), social_img.size
+        cap = _cap_raw(hero)
+        if not cap.startswith("Photo:"):
+            cap = f"Photo: {cap}" if cap else "Photo: Cultural Daily"
+        prefix = site["prefix"]
+        social_fn = f"{prefix}-{slug}-social.jpg"
+        sm = wp_upload_jpeg(
+            site,
+            social_img,
+            social_fn,
+            f"{prefix}-{slug}-social",
+            alt,
+            cap,
+        )
+        social_url = (sm.get("source_url") or "").strip()
+        sid = int(sm["id"])
+        actions.append(f"reuploaded social media id={sid} {site['social_w']}×{site['social_h']}")
+    else:
+        soc = requests.get(
+            f"{wp}/wp-json/wp/v2/media/{int(sid)}?context=edit",
+            auth=auth,
+            timeout=30,
+        ).json()
+        social_url = (soc.get("source_url") or "").strip()
+
+    if not social_url:
+        raise RuntimeError("Could not resolve social image URL for AIOSEO.")
+
+    seo_r = requests.get(
+        f"{wp}/wp-json/cd-seo/v1/read?post_id={post_id}",
+        auth=auth,
+        timeout=30,
+    ).json()
+    try:
+        kw = json.loads((seo_r.get("aioseo_db") or {}).get("keyphrases") or "{}").get("focus", {}).get(
+            "keyphrase", ""
+        )
+    except Exception:
+        kw = ""
+    focus = compact_focus_keyword((kw or slug.replace("-", " ")).strip())
+    meta = ((seo_r.get("aioseo_db") or {}).get("description") or "")[:160]
+    if not meta:
+        meta = (raw_title[:157] + "...") if len(raw_title) > 160 else raw_title
+    seo = {
+        "focus_keyword": focus,
+        "seo_title": raw_title,
+        "meta_description": meta,
+        "excerpt": meta,
+    }
+    push_aioseo_and_cdseo(
+        site,
+        post_id,
+        seo,
+        social_url,
+        seo_title_max=500,
+    )
+    actions.append("aioseo+cd-seo: focus compact, seo_title=post title, og_image set")
+
+    qa = verify_post(
+        site,
+        post_id,
+        seo,
+        hero_id,
+        int(sid),
+        site["title_max"],
+        expect_exact_title=raw_title if critical_rules_active() else None,
+        critical_rules=True,
+    )
+    return {"post_id": post_id, "hero_id": hero_id, "social_id": int(sid), "actions": actions, "qa_ok": qa}
+
+
 def send_whatsapp(post_id: int, title: str, edit_url: str, site_label: str) -> None:
     if not TWILIO_SID or not TWILIO_TOKEN or not TWILIO_FROM:
         print("[10] ⚠ WhatsApp skipped — TWILIO creds not set")
@@ -1000,6 +1201,12 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     machine_h1 = extract_h1_from_gdoc_html(ghtml).strip()
     client_src = first_client_image_src_from_gdoc(ghtml)
     manual_flags: List[str] = []
+    if cr and site["key"] == "cd" and not machine_h1:
+        raise RuntimeError(
+            "CRITICAL_RULES.md is active but no H1 could be extracted from the Google Doc "
+            "(no <h1>, no title-styled paragraph, or empty <title>). Rule #1 requires the exact "
+            "client H1 — fix the Doc structure before publishing."
+        )
 
     print(f"[2] Planning layout with Anthropic…")
     if cr:
@@ -1175,8 +1382,20 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
 
 def main(argv: List[str]) -> None:
     if len(argv) < 1:
-        print("Usage: python pipeline.py <google-doc-url> [cd|dcr]", file=sys.stderr)
+        print(
+            "Usage: python pipeline.py <google-doc-url> [cd|dcr]\n"
+            "       python pipeline.py remediate-latest cd",
+            file=sys.stderr,
+        )
         raise SystemExit(2)
+    if argv[0] == "remediate-latest":
+        site_key = argv[1] if len(argv) > 1 else "cd"
+        if site_key != "cd":
+            print("remediate-latest is only supported for cd", file=sys.stderr)
+            raise SystemExit(2)
+        out = remediate_latest_cd_draft()
+        print(json.dumps(out, indent=2))
+        raise SystemExit(0 if out.get("qa_ok") else 1)
     url = argv[0]
     site = argv[1] if len(argv) > 1 else "cd"
     out = run(url, site)

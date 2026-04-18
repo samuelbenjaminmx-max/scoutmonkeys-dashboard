@@ -2,8 +2,9 @@
 Google Doc HTML intake parser (export?format=html).
 
 Uses `cultural_daily_sponsored_rules.md` as the normative contract reference.
-When `CRITICAL_RULES.md` exists in the repo, its text is prepended to machine intake JSON for Claude
-(pipeline-wide override — see `CLAUDE.md`).
+When `CRITICAL_RULES.md` exists in the repo, its full text is prepended to machine intake JSON for Claude
+(pipeline-wide override for rules 1–11 — H1, body fidelity, client images, donation, category, focus keyword,
+social image + exact 1920×1400, no AI liberties — see `CLAUDE.md`).
 Implements an explicit decision tree for images, credits, and body structure.
 **Http(s) anchors are inventoried only** (href, anchor text, bold, target, nofollow,
 inline color) — there is no editorial-vs-paid taxonomy: on this site every body

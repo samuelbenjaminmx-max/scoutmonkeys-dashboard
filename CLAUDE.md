@@ -14,6 +14,9 @@ This repository powers the **Scoutmonkeys** publishing dashboard and CLI pipelin
 - **CLI publish (primary):**  
   `python pipeline.py "<google doc url>" cd`  
   Optional site: `dcr` (requires `DCR_*` env vars and compatible SEO endpoints).
+- **Repair latest CD draft (CRITICAL rules):**  
+  `python pipeline.py remediate-latest cd`  
+  Loads `REPO_ROOT/.env` if needed, then forces **Check This Out**, compacts the focus keyphrase, aligns SEO title to the post title, sets OG from the social URL, and re-uploads the social JPEG at **1920×1400** when the current social attachment is missing or the wrong size. Exits non-zero if `verify_post` still fails (e.g. body link shape).
 - **Web dashboard:** `gunicorn app:app` (Railway sets `PORT`; use `Procfile` locally or on deploy).
 - **Doc intake parse (batch):**  
   `python doc_parser.py --batch data/training_docs.txt --out data/training_parse_report.json`  
@@ -103,8 +106,8 @@ Optional: `AUDIT_MAX_POSTS=500` for a faster sample run.
 1. **Every article on this site is sponsored paid content.** Every outbound `http(s):` link in the **article body** (before the machine tail) is a **paid dofollow** link — **no exceptions**, **no** separate “editorial” link type, **no** parser classification step:  
    `<a href="URL" target="_blank"><strong>anchor</strong></a>` — **no** `rel="nofollow"`, **no** inline `color` styles.  
    `doc_parser` only **inventories** anchors and records shape hints (`has_strong`, `target_blank`, `has_nofollow`, …) so Claude and QA can enforce the same shape.  
-   The **Pexels photographer profile** line in the **machine tail** is the only deliberate `nofollow` anchor (attribution, italic — see **Tail structure**).
-2. **Hero is always Pexels-backed.** If the client Doc has **no** usable hero image, the pipeline **must** still search Pexels (primary query plus fallbacks) and attach a resized hero as `featured_media`. **Never** publish a post without a hero image.
+   The **Pexels photographer profile** line in the **machine tail** is the only deliberate `nofollow` anchor (attribution, italic — see **Tail structure**). **Client-supplied photo credits** in the tail are also `nofollow` where linked.
+2. **Hero image source:** If **`CRITICAL_RULES.md`** is absent, the default is **Pexels-backed hero**: search Pexels (with fallbacks) and attach a resized hero as `featured_media`. **Never** publish without a hero. **When `CRITICAL_RULES.md` is present**, a **client image in the Doc takes priority** (no Pexels replacement); Pexels is used only when the Doc has **no** usable client image.
 
 ## Anthropic (Claude)
 
@@ -121,7 +124,7 @@ Optional: `AUDIT_MAX_POSTS=500` for a faster sample run.
 
 - New posts are **`draft`** only.
 - **Author:** `OUR_FRIENDS_AUTHOR_ID` (default **19** on CD).
-- **Categories:** resolved automatically (`our-friends` slug first, then search); adjust `pipeline.resolve_default_category` if your taxonomy differs.
+- **Categories:** default pipeline uses `our-friends` / search hints; **when `CRITICAL_RULES.md` exists on CD**, the pipeline uses **`resolve_check_this_out_category`** (must never assign Sponsored for these posts).
 
 ## AIOSEO + `cd-seo` sequence
 
