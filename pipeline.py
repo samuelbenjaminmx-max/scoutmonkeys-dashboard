@@ -598,13 +598,53 @@ def extract_h1_from_gdoc_html(ghtml: str) -> str:
 
 
 def first_client_image_src_from_gdoc(ghtml: str) -> Optional[str]:
+    """
+    Return the src of the hero image: the first <img> that appears AFTER the H1 and BEFORE
+    any subsequent heading (h2–h6). This is the image the client placed directly under the
+    article title — it becomes the featured image and AIOSEO social image only, never the body.
+
+    Images that appear under h2/h3 headings are body images and are NOT returned here.
+    If no image sits in the title-to-first-heading gap, returns None.
+    """
     soup = BeautifulSoup(ghtml, "html.parser")
-    for img in soup.find_all("img"):
-        src = (img.get("src") or "").strip()
-        if not src or src.startswith("blob:"):
+
+    # Locate the H1 (or GDoc title paragraph)
+    h1_el = soup.find("h1")
+    if h1_el is None:
+        for p in soup.find_all("p"):
+            cls = " ".join(p.get("class") or []).lower()
+            if "title" in cls and p.get_text(strip=True):
+                h1_el = p
+                break
+
+    if h1_el is None:
+        # No title found — fall back to first image anywhere (legacy behaviour)
+        for img in soup.find_all("img"):
+            src = (img.get("src") or "").strip()
+            if src and not src.startswith("blob:") and src.startswith(("http://", "https://", "data:")):
+                return src
+        return None
+
+    # Walk every element that comes after the H1 in document order.
+    # The first <img> before the next heading is the hero; a heading before any image means no hero.
+    HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
+    found_h1 = False
+    for el in soup.descendants:
+        if el is h1_el:
+            found_h1 = True
             continue
-        if src.startswith(("http://", "https://", "data:")):
-            return src
+        if not found_h1:
+            continue
+        if not hasattr(el, "name") or el.name is None:
+            continue
+        if el.name in HEADING_TAGS:
+            # Hit the next section heading — stop; no hero image in the title block
+            return None
+        if el.name == "img":
+            src = (el.get("src") or "").strip()
+            if src and not src.startswith("blob:") and src.startswith(("http://", "https://", "data:")):
+                return src
+
     return None
 
 
