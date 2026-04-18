@@ -33,6 +33,7 @@ REPO_ROOT = Path(__file__).resolve().parent
 CRITICAL_RULES_PATH = REPO_ROOT / "CRITICAL_RULES.md"
 OUR_FRIENDS_AUDIT_JSON = REPO_ROOT / "data" / "our_friends_audit.json"
 AUDIT_FORMAT_PROFILE_JSON = REPO_ROOT / "data" / "audit_format_profile.json"
+MATCHED_PAIRS_JSON = REPO_ROOT / "data" / "matched_pairs.json"
 
 # ---------------------------------------------------------------------------
 # Environment
@@ -393,6 +394,12 @@ def plan_from_gdoc_html(
         )
     if critical_rules and site.get("key") == "cd":
         user_parts.append("\n" + audit_conformity_machine_note() + "\n")
+    if critical_rules and site.get("key") == "cd":
+        # Inject matched-pairs context: real Cultural Daily outcomes for similar articles.
+        # machine_h1 may be empty here; topic slug isn't known yet — use H1 words as proxy.
+        _mp_ctx = matched_pairs_context_for_topic("", machine_h1)
+        if _mp_ctx:
+            user_parts.append("\n" + _mp_ctx + "\n")
     user_parts.append(machine)
     user_parts.append("\nReturn JSON only.")
     user = "".join(user_parts)
@@ -541,6 +548,64 @@ def build_resized_pair(site: dict, hero_photo: dict) -> Tuple[Image.Image, Image
 
 def critical_rules_active() -> bool:
     return CRITICAL_RULES_PATH.is_file()
+
+
+_matched_pairs_cache: Optional[List[dict]] = None
+
+
+def load_matched_pairs() -> List[dict]:
+    """Load data/matched_pairs.json, cached for the process lifetime."""
+    global _matched_pairs_cache
+    if _matched_pairs_cache is not None:
+        return _matched_pairs_cache
+    if not MATCHED_PAIRS_JSON.is_file():
+        _matched_pairs_cache = []
+        return _matched_pairs_cache
+    try:
+        _matched_pairs_cache = json.loads(MATCHED_PAIRS_JSON.read_text(encoding="utf-8"))
+    except Exception:
+        _matched_pairs_cache = []
+    return _matched_pairs_cache
+
+
+def matched_pairs_context_for_topic(topic_slug: str, title: str, *, top_n: int = 3) -> str:
+    """
+    Return a compact summary of similar past Cultural Daily articles from matched_pairs.json —
+    what focus keyword, category, and SEO title structure actually worked. Used in the planner
+    prompt so decisions are grounded in real outcomes, not guesswork.
+    """
+    pairs = [p for p in load_matched_pairs() if p.get("wp_post_id")]
+    if not pairs:
+        return ""
+
+    # Score each pair by keyword overlap with the current topic/title
+    topic_words = set(re.findall(r"[a-z]+", (topic_slug + " " + title).lower()))
+
+    def _score(p: dict) -> int:
+        h1 = (p.get("doc", {}).get("h1") or "").lower()
+        kw = (p.get("wp", {}).get("focus_keyword") or "").lower()
+        cat = " ".join(p.get("wp", {}).get("category_slugs") or []).lower()
+        ref_words = set(re.findall(r"[a-z]+", h1 + " " + kw + " " + cat))
+        return len(topic_words & ref_words)
+
+    ranked = sorted(pairs, key=_score, reverse=True)[:top_n]
+    if not ranked or _score(ranked[0]) == 0:
+        return ""
+
+    lines = ["MATCHED_PAIRS_CONTEXT (real Cultural Daily outcomes for similar articles):"]
+    for p in ranked:
+        doc = p.get("doc", {})
+        wp = p.get("wp", {})
+        cmp = p.get("comparison", {})
+        lines.append(
+            f"  • \"{doc.get('h1', '')[:60]}\" → "
+            f"focus_kw={wp.get('focus_keyword')!r}  "
+            f"category={wp.get('category_slugs')}  "
+            f"seo_title_len={wp.get('seo_title_len')}  "
+            f"hero_ok={cmp.get('hero_set_in_wp')}  "
+            f"body_imgs_matched={cmp.get('body_image_count_match')}"
+        )
+    return "\n".join(lines)
 
 
 def load_critical_rules_text(max_chars: int = 28_000) -> str:
@@ -3286,11 +3351,18 @@ def create_wp_draft(
     hero_id: int,
     social_url: str,
     excerpt: str,
+    *,
+    gdoc_url: str = "",
 ) -> dict:
     wp, auth = wp_auth(site)
+    # Embed source Google Doc URL as an HTML comment so it's always recoverable
+    # (used by scripts/build_matched_pairs.py to grow the training dataset)
+    tracked_content = content
+    if gdoc_url:
+        tracked_content = content.rstrip() + f"\n<!-- scoutmonkeys-gdoc:{gdoc_url} -->"
     payload = {
         "title": title,
-        "content": content,
+        "content": tracked_content,
         "status": "draft",
         "featured_media": hero_id,
         "categories": [category_id],
@@ -5160,6 +5232,7 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         hero_id=hero_id,
         social_url=social_url,
         excerpt=seo["excerpt"],
+        gdoc_url=gdoc_url,
     )
     post_id = int(post["id"])
     edit_url = f"{site['wp_url']}/wp-admin/post.php?post={post_id}&action=edit"
