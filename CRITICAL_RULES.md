@@ -8,6 +8,18 @@ These rules override any general AI behavior, summarization behavior, rewriting 
 
 3. **CLIENT HERO IMAGE** — If the client places an image at the top of the Doc (under the title), use it as **featured hero only**. That image must be **removed from the article body** so it never appears twice.
 
+**IMAGE RULES — enforced on every CD article:**
+
+- **IMAGE RULE 1 (Hero):** The **first** `<img>` found anywhere in the Google Doc export is the hero/featured image and AIOSEO social image **only**. It must **never** appear in the post body — zero occurrences. The pipeline strips it from the body by exact src match AND pixel fingerprint before any other processing and again after all processing.
+
+- **IMAGE RULE 2 (Body placement):** All other images physically embedded in the Doc (as `data:` base64 URIs) go into the body **at their exact document position** — specifically placed under the heading or paragraph they appear below in the Doc. Do **not** reorder, relocate, or group them. If an image sits below "Rituals That Shape Habits" in the Doc, it sits below that same heading in the published HTML.
+
+- **IMAGE RULE 3 (Source — Doc only):** Body images must come **exclusively** from images physically embedded in the Google Doc export. Never pull body images from Pexels, any external URL, or any source not in the Doc. If a section has no embedded Doc image, leave that section image-free.
+
+- **IMAGE RULE 4 (Alt text):** Alt text for every body image must be a **Claude vision description** of what is literally visible in the photograph — people, objects, setting, action. It must **never** be the article title, the focus keyword, or a generic placeholder like "Photograph illustrating this sponsored article". The pipeline calls `cd_enrich_inline_image_alts_with_vision` after uploading each body image to generate these descriptions.
+
+- **IMAGE RULE 5 (No invented images):** If a section has no embedded Doc image, it stays image-free. Never insert a stock photo, Pexels result, or any image to "fill" a section that had no image in the original Doc.
+
 4. **PARAGRAPH SPACING** — At most **one** blank line between paragraphs and between a paragraph and the following H2. Never two blank lines in a row in the published HTML.
 
 5. **IMAGE ALT TEXT (HERO + SOCIAL)** — Alt text must be a **simple description of what is visible in the photograph**. It must **never** be the article title or a copy of the H1. The planner supplies `hero_image_alt`; the pipeline falls back to a generic visual description when needed.
