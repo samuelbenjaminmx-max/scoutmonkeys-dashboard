@@ -26,7 +26,7 @@ import doc_parser
 # ---------------------------------------------------------------------------
 
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 PEXELS_KEY = os.environ.get("PEXELS_API_KEY", "")
 
 TWILIO_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
@@ -198,6 +198,8 @@ def plan_from_gdoc_html(
           For purchased / sponsored outbound links use exactly:
           <a href="URL" target="_blank"><strong>anchor text</strong></a>
           Never add inline color styles. Never wrap the photo credit line here.
+          CRITICAL: article_body_html must be valid inside JSON — escape every " as \\" and use \\n for
+          newlines (no raw line breaks inside JSON string values).
         - focus_keyword: short phrase for SEO
         - seo_title: <= {site["seo_title_max"]} characters
         - meta_description: <= 160 characters, plain text
@@ -227,7 +229,22 @@ def plan_from_gdoc_html(
         + "\nReturn JSON only."
     )
     raw = _anthropic_messages(system, user)
-    return _extract_json_blob(raw)
+    try:
+        return _extract_json_blob(raw)
+    except (ValueError, json.JSONDecodeError) as exc:
+        fix_system = (
+            "You repair JSON. Output ONLY one valid JSON object (no markdown fences), "
+            "same keys and semantics as the Scoutmonkeys pipeline: topic_slug, post_title, "
+            "article_body_html, focus_keyword, seo_title, meta_description, hero_pexels_query, "
+            "photographer_fallback_name, category_hint."
+        )
+        fix_user = (
+            "The text below was meant to be one JSON object but it is invalid JSON (often "
+            "unescaped quotes or raw newlines inside article_body_html). "
+            f"Parse error: {exc}\n\nTEXT:\n{raw[:180_000]}"
+        )
+        raw2 = _anthropic_messages(fix_system, fix_user)
+        return _extract_json_blob(raw2)
 
 
 # ---------------------------------------------------------------------------
@@ -416,13 +433,16 @@ def push_aioseo_and_cdseo(site: dict, post_id: int, seo: dict, og_custom_url: st
     )
     if not r.ok:
         print(f"[warn] aioseo/v1/post {r.status_code}: {r.text[:400]}")
-    # 2) cd-seo resolves og_image_url + postmeta parity
+    # 2) cd-seo plugin persists AIOSEO DB + OG (see wp-json /cd-seo/v1/update args)
     r2 = requests.post(
         f"{wp}/wp-json/cd-seo/v1/update",
         auth=auth,
         json={
             "post_id": post_id,
-            "og_image_custom_url": og_custom_url,
+            "seo_title": (seo.get("seo_title") or "")[: site["seo_title_max"]],
+            "meta_description": (seo.get("meta_description") or "")[:160],
+            "focus_keyphrase": (seo.get("focus_keyword") or "")[:191],
+            "og_image_url": og_custom_url,
         },
         timeout=60,
     )
@@ -563,7 +583,10 @@ def verify_post(
         f"{wp}/wp-json/aioseo/v1/post?postId={post_id}", auth=auth, timeout=30
     ).json()
     og = aioseo_post.get("data", {}).get("currentPost", {}).get("og_image_custom_url") or ""
-    chk("Social set as OG image (AIOSEO custom_image)", bool(og), og[-40:] if og else "missing")
+    og_cd = (seo_r.get("aioseo_db") or {}).get("og_image_url") or ""
+    og_ok = bool(og or og_cd)
+    og_note = (og or og_cd)[-50:] if og_ok else "missing"
+    chk("Social set as OG image (AIOSEO / cd-seo)", og_ok, og_note)
 
     chk("Paid links bold in content", "<strong>" in c)
 

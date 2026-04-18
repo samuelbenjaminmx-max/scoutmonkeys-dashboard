@@ -26,7 +26,7 @@ This repository powers the **Scoutmonkeys** publishing dashboard and CLI pipelin
 | `WP_URL`, `WP_USER`, `WP_PASS` | Cultural Daily WordPress (application password) |
 | `DCR_WP_URL`, `DCR_WP_USER`, `DCR_WP_PASS` | Optional second site |
 | `PEXELS_API_KEY` | Pexels search + downloads |
-| `ANTHROPIC_API_KEY` | Claude planning (`ANTHROPIC_MODEL` optional, default `claude-sonnet-4-20250514`) |
+| `ANTHROPIC_API_KEY` | Claude planning (`ANTHROPIC_MODEL` optional, default `claude-sonnet-4-6`) |
 | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM` | Twilio WhatsApp (must be real values, not placeholders) |
 | `WHATSAPP_TO` | E.g. `whatsapp:+5215549571586` (preferred) |
 | `WHATSAPP_PHONE` | Fallback `+5215549571586` if `WHATSAPP_TO` unset |
