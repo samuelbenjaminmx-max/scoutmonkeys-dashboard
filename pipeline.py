@@ -593,12 +593,16 @@ def _norm_title_text(t: str) -> str:
     return re.sub(r"\s+", " ", t).strip().lower()
 
 
-def _cd_inline_alt_for_img(alt_raw: str, post_title: str) -> str:
+def _cd_inline_alt_for_img(
+    alt_raw: str, post_title: str, *, slot: Optional[int] = None
+) -> str:
     """Inline ``alt``: short photo description — never the article title."""
     tnorm = _norm_title_text(post_title)
     pa = unicodedata.normalize("NFKC", (alt_raw or "").strip())
     if pa and _norm_title_text(pa) != tnorm and 8 <= len(pa) <= 180:
         return pa[:180]
+    if slot is not None:
+        return f"Inline photograph {slot} for this sponsored article"
     return "Photograph supporting this sponsored article"
 
 
@@ -614,6 +618,61 @@ def _merge_css_style(prev: Optional[str], add: str) -> str:
 
 def _urls_loosely_same(a: str, b: str) -> bool:
     return _url_key(a) == _url_key(b)
+
+
+def _cd_remove_img_and_collapsing_empties(img) -> None:
+    """Remove an ``<img>`` and drop now-empty inline wrappers / spacer paragraphs."""
+    parent = getattr(img, "parent", None)
+    img.decompose()
+    el = parent
+    for _ in range(12):
+        if el is None or not getattr(el, "name", None):
+            break
+        name = el.name
+        if name in ("span", "b", "i", "em", "strong"):
+            if el.get_text(strip=True) or el.find("img"):
+                break
+            nxt = el.parent
+            el.decompose()
+            el = nxt
+            continue
+        if name == "p":
+            if el.get_text(strip=True) or el.find("img"):
+                break
+            nxt = el.parent
+            el.decompose()
+            el = nxt
+            continue
+        break
+
+
+def cd_deduplicate_inline_body_images(html: str, *, hero_src_to_skip: str = "") -> str:
+    """
+    Remove duplicate inline images (same normalized URL as an earlier ``<img>``) and any
+    body copy of the featured hero URL. Typical Google Docs issue: the same photo pasted twice.
+    First occurrence in document order is kept.
+    """
+    if not (html or "").strip():
+        return html
+    soup = BeautifulSoup(html, "html.parser")
+    hero_k = _url_key(hero_src_to_skip) if (hero_src_to_skip or "").strip() else ""
+    seen: set[str] = set()
+    changed = False
+    for img in list(soup.find_all("img")):
+        src = (img.get("src") or "").strip()
+        if not src.lower().startswith("http"):
+            continue
+        k = _url_key(src)
+        if hero_k and k == hero_k:
+            _cd_remove_img_and_collapsing_empties(img)
+            changed = True
+            continue
+        if k in seen:
+            _cd_remove_img_and_collapsing_empties(img)
+            changed = True
+            continue
+        seen.add(k)
+    return str(soup) if changed else html
 
 
 def strip_duplicate_lead_title_from_body_html(body_html: str, h1_text: str) -> str:
@@ -763,22 +822,77 @@ def _p_contains_only_img(par: Any) -> bool:
     return par.find("img") is not None
 
 
+def _cd_unwrap_span_wrappers_around_figure(fig) -> None:
+    """Google Docs often wraps ``<img>`` in ``<span>``; unwrap so the block figure can center."""
+    for _ in range(12):
+        par = fig.parent
+        if par is None or getattr(par, "name", "") != "span":
+            break
+        texts = [str(c).strip() for c in par.children if isinstance(c, NavigableString)]
+        if any(texts):
+            break
+        elems = [c for c in par.children if getattr(c, "name", None)]
+        if len(elems) == 1 and elems[0] is fig:
+            par.unwrap()
+        else:
+            break
+
+
+def _cd_center_paragraph_parent_of_figure(fig) -> None:
+    """If the figure sits in a ``<p>`` (invalid but common from exports), center that paragraph."""
+    p = fig.parent
+    if p is None or getattr(p, "name", "") != "p":
+        return
+    p["style"] = _merge_css_style(p.get("style"), "text-align:center")
+    cls = p.get("class")
+    if cls is None:
+        p["class"] = ["aligncenter"]
+    elif isinstance(cls, list):
+        if "aligncenter" not in cls:
+            cls.append("aligncenter")
+    else:
+        parts = str(cls).split()
+        if "aligncenter" not in parts:
+            parts.append("aligncenter")
+        p["class"] = parts
+
+
+def _cd_apply_figure_center_styles(fig, img) -> None:
+    cls = fig.get("class") or []
+    if isinstance(cls, str):
+        cls = [c for c in cls.split() if c]
+    for token in ("wp-block-image", "aligncenter"):
+        if token not in cls:
+            cls.append(token)
+    fig["class"] = cls
+    fig["align"] = "center"
+    fig["style"] = _merge_css_style(
+        fig.get("style"),
+        "margin-left:auto;margin-right:auto;text-align:center;max-width:100%",
+    )
+    img["style"] = _merge_css_style(
+        img.get("style"),
+        "display:block;margin-left:auto;margin-right:auto;max-width:100%;height:auto",
+    )
+
+
 def cd_format_body_inline_images(html: str, *, post_title: str = "") -> str:
     """
-    Center inline images with ``<figure align="center">`` and ``display:block;margin:0 auto`` on the
-    ``<img>``; ensure alt is a photo description (never the article title); place a following ``Photo:``
-    credit in a centered caption paragraph when present.
+    Center inline images (WordPress-friendly ``aligncenter`` + margins) and unwrap GDoc ``<span>``
+    wrappers; ensure alt is a photo description (never the article title); place a following
+    ``Photo:`` credit in a centered caption paragraph when present.
     """
     soup = BeautifulSoup(html, "html.parser")
-    for img in list(soup.find_all("img")):
-        src = (img.get("src") or "").strip()
-        if not src.startswith("http"):
-            continue
+    imgs = [
+        img
+        for img in list(soup.find_all("img"))
+        if (img.get("src") or "").strip().lower().startswith("http")
+    ]
+    for slot, img in enumerate(imgs, start=1):
         alt0 = (img.get("alt") or img.get("title") or "").strip()
-        img["alt"] = _cd_inline_alt_for_img(alt0, post_title)
+        img["alt"] = _cd_inline_alt_for_img(alt0, post_title, slot=slot)
         if "title" in img.attrs:
             del img["title"]
-        img["style"] = _merge_css_style(img.get("style"), "display:block;margin:0 auto")
         cap_txt = ""
         nxt = img.find_next("p")
         if nxt and nxt.get_text(" ", strip=True).lower().startswith("photo:"):
@@ -795,6 +909,9 @@ def cd_format_body_inline_images(html: str, *, post_title: str = "") -> str:
             fig = soup.new_tag("figure", attrs={"align": "center"})
             img.replace_with(fig)
             fig.append(img)
+        _cd_apply_figure_center_styles(fig, img)
+        _cd_unwrap_span_wrappers_around_figure(fig)
+        _cd_center_paragraph_parent_of_figure(fig)
         if cap_txt:
             cap_p = soup.new_tag(
                 "p",
@@ -1123,14 +1240,30 @@ def _normalize_wp_media_basename(url: str) -> str:
     return b
 
 
-def _cd_insert_src_named_for_slot(site: dict, src: str, topic_slug: str, slot: int) -> bool:
-    slug = (topic_slug or "").strip().lower()
-    pfx = (site.get("prefix") or "").strip().lower()
-    if not slug or not pfx or slot < 1:
+def cd_insert_media_title(site: dict, slot: int) -> str:
+    """WordPress media title + basename stem for inline inserts: ``CD-Insert1``, ``CD-Insert2``, …"""
+    pfx = (site.get("prefix") or "CD").strip() or "CD"
+    return f"{pfx}-Insert{int(slot)}"
+
+
+def _cd_insert_src_matches_slot_title(site: dict, src: str, slot: int) -> bool:
+    """True when ``src`` basename already matches this pipeline's insert naming (current or legacy)."""
+    if slot < 1:
         return False
-    base = _basename_media_path(src)
-    want = f"{pfx}-{slug}-insert-{slot}".lower()
-    return base.startswith(want + ".jp")
+    base = _basename_media_path(src).lower()
+    cur = cd_insert_media_title(site, slot).lower()
+    if base.startswith(cur + ".jp"):
+        return True
+    pfx = (site.get("prefix") or "CD").strip().lower()
+    # Legacy: ``{prefix}-{topic}-insert-{n}.jpg``
+    m = re.search(r"-insert-(\d+)\.jpe?g$", base, re.I)
+    if m and pfx and base.startswith(pfx + "-"):
+        try:
+            leg_slot = int(m.group(1))
+        except ValueError:
+            return False
+        return leg_slot == slot
+    return False
 
 
 def cd_reupload_inline_body_images(
@@ -1142,13 +1275,13 @@ def cd_reupload_inline_body_images(
     hero_src_to_skip: str = "",
 ) -> str:
     """
-    Upload each non-hero inline ``<img>`` to WordPress as ``{prefix}-{topic}-insert-{n}`` (filename + title).
-    Skips URLs whose basename already matches that ordinal among body images (in document order).
+    Upload each non-hero inline ``<img>`` to WordPress as ``{prefix}-Insert1``, ``{prefix}-Insert2``, …
+    (filename + attachment title). Skips URLs already named for that slot (current or legacy
+    ``{prefix}-{topic}-insert-{n}`` basename).
     """
     if not (body_html or "").strip():
         return body_html
-    prefix = (site.get("prefix") or "CD").strip()
-    slug = re.sub(r"[^a-z0-9-]+", "-", (topic_slug or "topic").lower()).strip("-") or "topic"
+    _ = topic_slug  # retained for API compatibility; insert titles no longer embed the topic slug
     soup = BeautifulSoup(body_html, "html.parser")
     changed = False
     slot = 0
@@ -1159,9 +1292,9 @@ def cd_reupload_inline_body_images(
         if hero_src_to_skip and _urls_loosely_same(src, hero_src_to_skip):
             continue
         slot += 1
-        if _cd_insert_src_named_for_slot(site, src, slug, slot):
+        if _cd_insert_src_matches_slot_title(site, src, slot):
             alt0 = (img.get("alt") or img.get("title") or "").strip()
-            new_alt = _cd_inline_alt_for_img(alt0, post_title)
+            new_alt = _cd_inline_alt_for_img(alt0, post_title, slot=slot)
             if (img.get("alt") or "") != new_alt:
                 img["alt"] = new_alt
                 changed = True
@@ -1176,14 +1309,14 @@ def cd_reupload_inline_body_images(
             nxt.decompose()
             changed = True
         alt0 = (img.get("alt") or img.get("title") or "").strip()
-        alt_f = _cd_inline_alt_for_img(alt0, post_title)
+        alt_f = _cd_inline_alt_for_img(alt0, post_title, slot=slot)
         try:
             pil = _pil_image_from_src(src).convert("RGB")
         except Exception as e:
             print(f"[warn] inline image upload skipped ({src[:90]}…): {e}")
             continue
-        fn = f"{prefix}-{slug}-insert-{slot}.jpg"
-        title_m = f"{prefix}-{slug}-insert-{slot}"
+        title_m = cd_insert_media_title(site, slot)
+        fn = f"{title_m}.jpg"
         try:
             m = wp_upload_jpeg(site, pil, fn, title_m, alt_f, cap_txt)
         except Exception as e:
@@ -1946,6 +2079,7 @@ def remediate_latest_cd_draft() -> dict:
         tail_suffix = ""
     pre_body = normalize_cd_body_vertical_spacing(pre_body)
     pre2 = normalize_cd_body_support_links_for_dofollow(site, pre_body)
+    pre2 = cd_deduplicate_inline_body_images(pre2, hero_src_to_skip=hero_url)
     pre2 = cd_reupload_inline_body_images(
         site,
         pre2,
@@ -1964,7 +2098,9 @@ def remediate_latest_cd_draft() -> dict:
             timeout=120,
         )
         rub.raise_for_status()
-        actions.append("post body: CD-*-insert-* uploads, centered figures, single blank lines")
+        actions.append(
+            "post body: CD-InsertN uploads, deduped inline imgs, centered figures, single blank lines"
+        )
         raw_content = new_content
         post = requests.get(
             f"{wp}/wp-json/wp/v2/posts/{post_id}?context=edit",
@@ -2228,6 +2364,9 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     body = canonicalize_body_http_links_cd(site, body)
     body = normalize_cd_body_support_links_for_dofollow(site, body)
     if site["key"] == "cd":
+        body = cd_deduplicate_inline_body_images(
+            body, hero_src_to_skip=(client_src or "").strip()
+        )
         body = cd_reupload_inline_body_images(
             site,
             body,
