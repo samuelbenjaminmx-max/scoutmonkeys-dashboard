@@ -44,8 +44,10 @@ PEXELS_KEY = os.environ.get("PEXELS_API_KEY", "")
 TWILIO_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
 TWILIO_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
 TWILIO_FROM = os.environ.get("TWILIO_WHATSAPP_FROM", "")
+# When ``WHATSAPP_TO`` is unset, Twilio ``To`` is built from ``WHATSAPP_PHONE`` (E.164) per CLAUDE.md.
+WHATSAPP_FALLBACK_E164 = "+5215549571586"
 WA_TO = os.environ.get("WHATSAPP_TO")
-WA_PHONE = os.environ.get("WHATSAPP_PHONE", "")
+WA_PHONE = (os.environ.get("WHATSAPP_PHONE") or "").strip() or WHATSAPP_FALLBACK_E164
 
 try:
     OUR_FRIENDS_AUTHOR_ID = int(os.environ.get("OUR_FRIENDS_AUTHOR_ID", "19"))
@@ -65,7 +67,7 @@ def _refresh_runtime_env_from_os() -> None:
     TWILIO_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
     TWILIO_FROM = os.environ.get("TWILIO_WHATSAPP_FROM", "")
     WA_TO = os.environ.get("WHATSAPP_TO")
-    WA_PHONE = os.environ.get("WHATSAPP_PHONE", "")
+    WA_PHONE = (os.environ.get("WHATSAPP_PHONE") or "").strip() or WHATSAPP_FALLBACK_E164
     try:
         OUR_FRIENDS_AUTHOR_ID = int(os.environ.get("OUR_FRIENDS_AUTHOR_ID", "19"))
     except (ValueError, TypeError):
@@ -3128,6 +3130,153 @@ def _parse_topic_slug_from_attachment_title(title: str, prefix: str) -> str:
     return "topic"
 
 
+def purge_latest_cd_draft() -> dict:
+    """
+    Permanently delete the **newest** Cultural Daily draft (same author selection as
+    ``remediate-latest``) and **force-delete** its featured hero, ``{prefix}-{slug}-social`` media,
+    and any body ``wp-image-{id}`` attachments referenced in the post HTML.
+
+    Use before re-running ``python pipeline.py <google-doc-url> cd`` to remove a test draft and
+    its uploaded JPEGs from WordPress.
+    """
+    _apply_repo_dotenv_for_cli()
+    _refresh_runtime_env_from_os()
+    _refresh_sites()
+    site = SITES["cd"]
+    if not site.get("wp_pass"):
+        raise RuntimeError("WP_USER / WP_PASS not set.")
+    wp, auth = wp_auth(site)
+    aid = int(site["author_id"])
+    r = requests.get(
+        f"{wp}/wp-json/wp/v2/posts",
+        auth=auth,
+        params={
+            "status": "draft",
+            "per_page": 10,
+            "orderby": "date",
+            "order": "desc",
+        },
+        timeout=30,
+    )
+    r.raise_for_status()
+    posts = r.json()
+    ours = [p for p in posts if int(p.get("author") or 0) == aid]
+    if not ours and posts:
+        ours = posts
+        print(
+            f"[purge] No drafts with author={aid} on first page; "
+            f"using newest draft author={posts[0].get('author')}."
+        )
+    if not ours:
+        raise RuntimeError("No drafts returned from WordPress.")
+    post_id = int(ours[0]["id"])
+    pe = requests.get(
+        f"{wp}/wp-json/wp/v2/posts/{post_id}?context=edit",
+        auth=auth,
+        timeout=30,
+    )
+    pe.raise_for_status()
+    post = pe.json()
+    title = (post.get("title") or {}).get("raw") or (post.get("title") or {}).get("rendered") or ""
+    raw_content = (post.get("content") or {}).get("raw") or ""
+    hero_id = int(post.get("featured_media") or 0)
+    media_ids: set[int] = set()
+    if hero_id:
+        media_ids.add(hero_id)
+    for m in re.finditer(r"wp-image-(\d+)", raw_content, flags=re.I):
+        try:
+            media_ids.add(int(m.group(1)))
+        except ValueError:
+            continue
+    slug = "topic"
+    prefix = (site.get("prefix") or "CD").strip()
+    if hero_id:
+        hr = requests.get(
+            f"{wp}/wp-json/wp/v2/media/{hero_id}?context=edit",
+            auth=auth,
+            timeout=30,
+        )
+        if hr.ok:
+            hj = hr.json()
+            ht = (hj.get("title") or {}).get("raw") or (hj.get("title") or {}).get("rendered") or ""
+            slug = _parse_topic_slug_from_attachment_title(ht, prefix)
+    social_id = find_social_attachment_by_title(site, slug, hero_id) if hero_id else None
+    if social_id:
+        media_ids.add(int(social_id))
+
+    print(f"[purge] Deleting draft post id={post_id} title={title[:80]!r}…")
+    rp = requests.delete(
+        f"{wp}/wp-json/wp/v2/posts/{post_id}",
+        auth=auth,
+        params={"force": "true"},
+        timeout=90,
+    )
+    if not rp.ok:
+        raise RuntimeError(f"DELETE post {post_id} failed {rp.status_code}: {rp.text[:400]}")
+    deleted: List[int] = []
+    errors: List[str] = []
+    for mid in sorted(media_ids):
+        rd = requests.delete(
+            f"{wp}/wp-json/wp/v2/media/{mid}",
+            auth=auth,
+            params={"force": "true"},
+            timeout=90,
+        )
+        if rd.ok:
+            deleted.append(mid)
+        else:
+            errors.append(f"media {mid}: {rd.status_code} {rd.text[:120]}")
+    if errors:
+        for e in errors:
+            print(f"[purge] ⚠ {e}")
+    orphan_deleted: List[int] = []
+    if slug != "topic":
+
+        def _tit_plain(row: dict) -> str:
+            t = (row.get("title") or {}).get("raw") or (row.get("title") or {}).get("rendered") or ""
+            return html_module.unescape(re.sub(r"<[^>]+>", "", t)).strip().lower()
+
+        done_set = set(deleted)
+        for want in (f"{prefix}-{slug}-hero", f"{prefix}-{slug}-social"):
+            rm = requests.get(
+                f"{wp}/wp-json/wp/v2/media",
+                auth=auth,
+                params={"search": want, "per_page": 15, "orderby": "date", "order": "desc"},
+                timeout=30,
+            )
+            if not rm.ok:
+                continue
+            for row in rm.json():
+                try:
+                    mid = int(row["id"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if mid in done_set:
+                    continue
+                if _tit_plain(row) != want.lower():
+                    continue
+                rd = requests.delete(
+                    f"{wp}/wp-json/wp/v2/media/{mid}",
+                    auth=auth,
+                    params={"force": "true"},
+                    timeout=90,
+                )
+                if rd.ok:
+                    orphan_deleted.append(mid)
+                    done_set.add(mid)
+                else:
+                    print(f"[purge] ⚠ orphan media {mid}: {rd.status_code} {rd.text[:120]}")
+    if orphan_deleted:
+        print(f"[purge] Removed leftover hero/social attachments: {orphan_deleted}")
+    print(f"[purge] Done. Deleted media ids={deleted + orphan_deleted}")
+    return {
+        "deleted_post_id": post_id,
+        "post_title": title,
+        "deleted_media_ids": deleted + orphan_deleted,
+        "media_delete_errors": errors,
+    }
+
+
 def remediate_latest_cd_draft() -> dict:
     """
     Repair the newest Cultural Daily (Our Friends) draft per CRITICAL_RULES when possible:
@@ -3426,6 +3575,27 @@ def remediate_latest_cd_draft() -> dict:
     return {"post_id": post_id, "hero_id": hero_id, "social_id": int(sid), "actions": actions, "qa_ok": qa}
 
 
+def _whatsapp_to_address() -> str:
+    """
+    Twilio ``To`` for WhatsApp. Prefer ``WHATSAPP_TO`` (full ``whatsapp:+…`` URI); else
+    ``WHATSAPP_PHONE`` as E.164; else documented fallback (CLAUDE.md).
+    """
+    raw = (WA_TO or "").strip()
+    if raw:
+        if raw.lower().startswith("whatsapp:"):
+            return raw
+        if raw.startswith("+"):
+            return f"whatsapp:{raw}"
+        return raw
+    p = (WA_PHONE or "").strip()
+    if p.lower().startswith("whatsapp:"):
+        return p
+    e164 = p or WHATSAPP_FALLBACK_E164
+    if not e164.startswith("+"):
+        e164 = "+" + e164.lstrip("+")
+    return f"whatsapp:{e164}"
+
+
 def send_whatsapp(
     post_id: int,
     title: str,
@@ -3436,14 +3606,14 @@ def send_whatsapp(
     extra_line: str = "",
 ) -> None:
     if not TWILIO_SID or not TWILIO_TOKEN or not TWILIO_FROM:
-        print("[10] ⚠ WhatsApp skipped — TWILIO creds not set")
+        print("[10] ⚠ WhatsApp skipped — TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_WHATSAPP_FROM not all set")
         return
     if TWILIO_SID == "TWILIO_ACCOUNT_SID" or TWILIO_TOKEN == "TWILIO_AUTH_TOKEN":
         print("[10] ⚠ WhatsApp skipped — Twilio env vars are still Railway placeholders")
         return
-    to = WA_TO or (f"whatsapp:{WA_PHONE}" if WA_PHONE else "")
+    to = _whatsapp_to_address()
     if not to:
-        print("[10] ⚠ WhatsApp skipped — WHATSAPP_TO and WHATSAPP_PHONE are both unset")
+        print("[10] ⚠ WhatsApp skipped — could not build recipient (WHATSAPP_TO / WHATSAPP_PHONE)")
         return
     qa_line = ""
     if qa_ok is True:
@@ -3467,9 +3637,9 @@ def send_whatsapp(
         timeout=30,
     )
     if not r.ok:
-        print(f"[10] Twilio error {r.status_code}: {r.text[:400]}")
+        print(f"[10] Twilio error {r.status_code} to={to!r}: {r.text[:800]}")
     else:
-        print("[10] WhatsApp sent.")
+        print(f"[10] WhatsApp sent to {to}.")
 
 
 # ---------------------------------------------------------------------------
@@ -3816,10 +3986,15 @@ def main(argv: List[str]) -> None:
     if len(argv) < 1:
         print(
             "Usage: python pipeline.py <google-doc-url> [cd|dcr]\n"
-            "       python pipeline.py remediate-latest cd",
+            "       python pipeline.py remediate-latest cd\n"
+            "       python pipeline.py purge-latest-cd-draft",
             file=sys.stderr,
         )
         raise SystemExit(2)
+    if argv[0] == "purge-latest-cd-draft":
+        out = purge_latest_cd_draft()
+        print(json.dumps(out, indent=2))
+        raise SystemExit(0)
     if argv[0] == "remediate-latest":
         site_key = argv[1] if len(argv) > 1 else "cd"
         if site_key != "cd":
