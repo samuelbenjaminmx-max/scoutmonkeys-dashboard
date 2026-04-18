@@ -980,6 +980,50 @@ def remove_client_hero_image_from_body_html(body_html: str, client_src: str) -> 
     return str(soup)
 
 
+def cd_guaranteed_hero_strip(body_html: str, hero_src: str, *, label: str = "") -> str:
+    """
+    Hard-guarantee strip: remove every ``<img>`` in the body that matches the hero photograph
+    by **exact src string** OR **pixel fingerprint**.  Called both immediately after body
+    extraction (data: URIs still present) and after all processing (WP URLs) so the featured
+    hero can never appear in body content under any circumstances.
+    """
+    if not (body_html or "").strip() or not (hero_src or "").strip():
+        return body_html
+    hs = hero_src.strip()
+    hero_fp: Optional[str] = None
+    try:
+        hero_pil = _pil_image_from_src(hs).convert("RGB")
+        hero_fp = hashlib.sha256(_cd_pil_fingerprint_bytes(hero_pil)).hexdigest()
+    except Exception:
+        hero_fp = None
+    soup = BeautifulSoup(body_html, "html.parser")
+    removed = 0
+    for img in list(soup.find_all("img")):
+        src = (img.get("src") or "").strip()
+        if not src:
+            continue
+        if src == hs or src.lower() == hs.lower():
+            _cd_remove_img_and_collapsing_empties(img)
+            removed += 1
+            continue
+        if hero_fp:
+            try:
+                fp = hashlib.sha256(_cd_pil_fingerprint_bytes(_pil_image_from_src(src).convert("RGB"))).hexdigest()
+                if fp == hero_fp:
+                    _cd_remove_img_and_collapsing_empties(img)
+                    removed += 1
+                    continue
+            except Exception:
+                pass
+    if removed:
+        tag = f" {label}" if label else ""
+        print(
+            f"[2c] Hero strip{tag}: removed {removed} body <img> node(s) matching the client hero "
+            "(src or pixel fingerprint) — hero is featured_media only."
+        )
+    return str(soup) if removed else body_html
+
+
 def _norm_title_text(t: str) -> str:
     t = unicodedata.normalize("NFKC", t or "")
     return re.sub(r"\s+", " ", t).strip().lower()
@@ -4795,6 +4839,8 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     if site["key"] == "cd":
         body = normalize_cd_body_vertical_spacing(body)
     if site["key"] == "cd" and client_src:
+        # Early guaranteed strip: hero must never appear in body under any circumstances.
+        body = cd_guaranteed_hero_strip(body, client_src, label="early")
         body = remove_client_hero_image_from_body_html(body, client_src)
     if site["key"] == "cd" and cr and machine_h1:
         body = strip_duplicate_lead_title_from_body_html(body, machine_h1)
@@ -4845,6 +4891,9 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         body = format_to_audit_standard(body, site=site)
         body = cd_enrich_inline_image_alts_with_vision(body, title)
         cd_sync_inline_attachment_alts_from_body(site, body)
+        # Final guaranteed strip: catch any hero img that survived all earlier passes.
+        if client_src:
+            body = cd_guaranteed_hero_strip(body, client_src, label="final")
     if site["key"] == "cd":
         focus = refine_focus_keyword_for_content(
             focus, body=body, doc_html=ghtml, title=title, topic_slug=topic
