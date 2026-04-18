@@ -3191,6 +3191,210 @@ def _parse_topic_slug_from_attachment_title(title: str, prefix: str) -> str:
     return "topic"
 
 
+def _cd_collect_media_ids_and_slug(site: dict, wp: str, auth, post: dict) -> tuple[set[int], str]:
+    """Featured media, body ``wp-image-*``, and social JPEG for this draft; slug from hero title."""
+    raw_content = (post.get("content") or {}).get("raw") or ""
+    hero_id = int(post.get("featured_media") or 0)
+    media_ids: set[int] = set()
+    if hero_id:
+        media_ids.add(hero_id)
+    for m in re.finditer(r"wp-image-(\d+)", raw_content, flags=re.I):
+        try:
+            media_ids.add(int(m.group(1)))
+        except ValueError:
+            continue
+    slug = "topic"
+    prefix = (site.get("prefix") or "CD").strip()
+    if hero_id:
+        hr = requests.get(
+            f"{wp}/wp-json/wp/v2/media/{hero_id}?context=edit",
+            auth=auth,
+            timeout=30,
+        )
+        if hr.ok:
+            hj = hr.json()
+            ht = (hj.get("title") or {}).get("raw") or (hj.get("title") or {}).get("rendered") or ""
+            slug = _parse_topic_slug_from_attachment_title(ht, prefix)
+    social_id = find_social_attachment_by_title(site, slug, hero_id) if hero_id else None
+    if social_id:
+        media_ids.add(int(social_id))
+    return media_ids, slug
+
+
+def _cd_media_delete_orphans_for_slug(
+    site: dict, wp: str, auth, slug: str, prefix: str, done_set: set[int]
+) -> tuple[list[int], list[str]]:
+    """Search/delete hero+social attachments whose plain titles match ``{prefix}-{slug}-*``."""
+    orphan_deleted: List[int] = []
+    errors: List[str] = []
+    if slug == "topic":
+        return orphan_deleted, errors
+
+    def _tit_plain(row: dict) -> str:
+        t = (row.get("title") or {}).get("raw") or (row.get("title") or {}).get("rendered") or ""
+        return html_module.unescape(re.sub(r"<[^>]+>", "", t)).strip().lower()
+
+    for want in (f"{prefix}-{slug}-hero", f"{prefix}-{slug}-social"):
+        rm = requests.get(
+            f"{wp}/wp-json/wp/v2/media",
+            auth=auth,
+            params={"search": want, "per_page": 15, "orderby": "date", "order": "desc"},
+            timeout=30,
+        )
+        if not rm.ok:
+            continue
+        for row in rm.json():
+            try:
+                mid = int(row["id"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if mid in done_set:
+                continue
+            if _tit_plain(row) != want.lower():
+                continue
+            rd = requests.delete(
+                f"{wp}/wp-json/wp/v2/media/{mid}",
+                auth=auth,
+                params={"force": "true"},
+                timeout=90,
+            )
+            if rd.ok:
+                orphan_deleted.append(mid)
+                done_set.add(mid)
+            else:
+                errors.append(f"orphan media {mid}: {rd.status_code} {rd.text[:120]}")
+    return orphan_deleted, errors
+
+
+def _cd_force_delete_draft_post_and_media(
+    site: dict, wp: str, auth, post_id: int, post: dict, log_prefix: str = "[purge]"
+) -> dict:
+    """DELETE draft post ``force=true``, then attached/orphan media (same rules as purge-latest)."""
+    title = (post.get("title") or {}).get("raw") or (post.get("title") or {}).get("rendered") or ""
+    media_ids, slug = _cd_collect_media_ids_and_slug(site, wp, auth, post)
+    prefix = (site.get("prefix") or "CD").strip()
+
+    print(f"{log_prefix} Deleting draft post id={post_id} title={title[:80]!r}…")
+    rp = requests.delete(
+        f"{wp}/wp-json/wp/v2/posts/{post_id}",
+        auth=auth,
+        params={"force": "true"},
+        timeout=90,
+    )
+    if not rp.ok:
+        raise RuntimeError(f"DELETE post {post_id} failed {rp.status_code}: {rp.text[:400]}")
+
+    deleted: List[int] = []
+    errors: List[str] = []
+    for mid in sorted(media_ids):
+        rd = requests.delete(
+            f"{wp}/wp-json/wp/v2/media/{mid}",
+            auth=auth,
+            params={"force": "true"},
+            timeout=90,
+        )
+        if rd.ok:
+            deleted.append(mid)
+        else:
+            errors.append(f"media {mid}: {rd.status_code} {rd.text[:120]}")
+
+    done_set = set(deleted)
+    orphan_deleted, orphan_errs = _cd_media_delete_orphans_for_slug(
+        site, wp, auth, slug, prefix, done_set
+    )
+    errors.extend(orphan_errs)
+
+    if errors:
+        for e in errors:
+            print(f"{log_prefix} ⚠ {e}")
+    if orphan_deleted:
+        print(f"{log_prefix} Removed leftover hero/social attachments: {orphan_deleted}")
+    return {
+        "deleted_post_id": post_id,
+        "post_title": title,
+        "deleted_media_ids": deleted + orphan_deleted,
+        "media_delete_errors": errors,
+    }
+
+
+def cd_delete_cd_drafts_matching_title(site: dict, post_title: str) -> dict:
+    """
+    Remove existing **draft** posts whose title matches ``post_title`` (normalized), same author
+    filter as ``purge_latest_cd_draft``. Must run **before** uploading new hero/social for the same
+    topic slug so orphan media cleanup cannot delete freshly uploaded attachments.
+
+    Set ``CD_AUTO_PURGE_SAME_TITLE=0`` to disable.
+    """
+    out: dict = {"deleted_post_ids": [], "deleted_media_ids": []}
+    if site.get("key") != "cd":
+        return out
+    flag = os.environ.get("CD_AUTO_PURGE_SAME_TITLE", "1").strip().lower()
+    if flag in ("0", "false", "no", "off"):
+        out["skipped"] = "CD_AUTO_PURGE_SAME_TITLE disabled"
+        return out
+
+    want = _norm_title_text(post_title)
+    if not want:
+        return out
+
+    wp, auth = wp_auth(site)
+    aid = int(site["author_id"])
+    r = requests.get(
+        f"{wp}/wp-json/wp/v2/posts",
+        auth=auth,
+        params={"status": "draft", "per_page": 50, "orderby": "date", "order": "desc"},
+        timeout=30,
+    )
+    if not r.ok:
+        print(f"[2e][cd-purge-title] list drafts failed: {r.status_code} {r.text[:200]}")
+        out["warn"] = r.text[:200]
+        return out
+
+    posts = r.json()
+    ours = [p for p in posts if int(p.get("author") or 0) == aid]
+    if not ours and posts:
+        ours = posts
+        print(
+            f"[2e][cd-purge-title] No drafts with author={aid} on first page; "
+            f"using drafts from first page anyway."
+        )
+
+    matches: List[int] = []
+    for p in ours:
+        raw = (p.get("title") or {}).get("raw") or (p.get("title") or {}).get("rendered") or ""
+        if _norm_title_text(raw) != want:
+            continue
+        matches.append(int(p["id"]))
+
+    deleted_posts: List[int] = []
+    all_media: List[int] = []
+    for post_id in sorted(matches, reverse=True):
+        pe = requests.get(
+            f"{wp}/wp-json/wp/v2/posts/{post_id}?context=edit",
+            auth=auth,
+            timeout=30,
+        )
+        if not pe.ok:
+            print(f"[2e][cd-purge-title] skip post {post_id}: GET {pe.status_code}")
+            continue
+        post = pe.json()
+        try:
+            one = _cd_force_delete_draft_post_and_media(
+                site, wp, auth, post_id, post, log_prefix="[2e][cd-purge-title]"
+            )
+        except RuntimeError as e:
+            print(f"[2e][cd-purge-title] {e}")
+            continue
+        deleted_posts.append(post_id)
+        all_media.extend(one["deleted_media_ids"])
+
+    if deleted_posts:
+        print(f"[2e] Removed prior CD draft(s) with same title ({len(deleted_posts)}): {deleted_posts}")
+    out["deleted_post_ids"] = deleted_posts
+    out["deleted_media_ids"] = all_media
+    return out
+
+
 def purge_latest_cd_draft() -> dict:
     """
     Permanently delete the **newest** Cultural Daily draft (same author selection as
@@ -3238,103 +3442,13 @@ def purge_latest_cd_draft() -> dict:
     )
     pe.raise_for_status()
     post = pe.json()
-    title = (post.get("title") or {}).get("raw") or (post.get("title") or {}).get("rendered") or ""
-    raw_content = (post.get("content") or {}).get("raw") or ""
-    hero_id = int(post.get("featured_media") or 0)
-    media_ids: set[int] = set()
-    if hero_id:
-        media_ids.add(hero_id)
-    for m in re.finditer(r"wp-image-(\d+)", raw_content, flags=re.I):
-        try:
-            media_ids.add(int(m.group(1)))
-        except ValueError:
-            continue
-    slug = "topic"
-    prefix = (site.get("prefix") or "CD").strip()
-    if hero_id:
-        hr = requests.get(
-            f"{wp}/wp-json/wp/v2/media/{hero_id}?context=edit",
-            auth=auth,
-            timeout=30,
-        )
-        if hr.ok:
-            hj = hr.json()
-            ht = (hj.get("title") or {}).get("raw") or (hj.get("title") or {}).get("rendered") or ""
-            slug = _parse_topic_slug_from_attachment_title(ht, prefix)
-    social_id = find_social_attachment_by_title(site, slug, hero_id) if hero_id else None
-    if social_id:
-        media_ids.add(int(social_id))
-
-    print(f"[purge] Deleting draft post id={post_id} title={title[:80]!r}…")
-    rp = requests.delete(
-        f"{wp}/wp-json/wp/v2/posts/{post_id}",
-        auth=auth,
-        params={"force": "true"},
-        timeout=90,
-    )
-    if not rp.ok:
-        raise RuntimeError(f"DELETE post {post_id} failed {rp.status_code}: {rp.text[:400]}")
-    deleted: List[int] = []
-    errors: List[str] = []
-    for mid in sorted(media_ids):
-        rd = requests.delete(
-            f"{wp}/wp-json/wp/v2/media/{mid}",
-            auth=auth,
-            params={"force": "true"},
-            timeout=90,
-        )
-        if rd.ok:
-            deleted.append(mid)
-        else:
-            errors.append(f"media {mid}: {rd.status_code} {rd.text[:120]}")
-    if errors:
-        for e in errors:
-            print(f"[purge] ⚠ {e}")
-    orphan_deleted: List[int] = []
-    if slug != "topic":
-
-        def _tit_plain(row: dict) -> str:
-            t = (row.get("title") or {}).get("raw") or (row.get("title") or {}).get("rendered") or ""
-            return html_module.unescape(re.sub(r"<[^>]+>", "", t)).strip().lower()
-
-        done_set = set(deleted)
-        for want in (f"{prefix}-{slug}-hero", f"{prefix}-{slug}-social"):
-            rm = requests.get(
-                f"{wp}/wp-json/wp/v2/media",
-                auth=auth,
-                params={"search": want, "per_page": 15, "orderby": "date", "order": "desc"},
-                timeout=30,
-            )
-            if not rm.ok:
-                continue
-            for row in rm.json():
-                try:
-                    mid = int(row["id"])
-                except (KeyError, TypeError, ValueError):
-                    continue
-                if mid in done_set:
-                    continue
-                if _tit_plain(row) != want.lower():
-                    continue
-                rd = requests.delete(
-                    f"{wp}/wp-json/wp/v2/media/{mid}",
-                    auth=auth,
-                    params={"force": "true"},
-                    timeout=90,
-                )
-                if rd.ok:
-                    orphan_deleted.append(mid)
-                    done_set.add(mid)
-                else:
-                    print(f"[purge] ⚠ orphan media {mid}: {rd.status_code} {rd.text[:120]}")
-    if orphan_deleted:
-        print(f"[purge] Removed leftover hero/social attachments: {orphan_deleted}")
-    print(f"[purge] Done. Deleted media ids={deleted + orphan_deleted}")
+    out = _cd_force_delete_draft_post_and_media(site, wp, auth, post_id, post)
+    print(f"[purge] Done. Deleted media ids={out['deleted_media_ids']}")
     return {
-        "deleted_post_id": post_id,
-        "post_title": title,
-        "deleted_media_ids": deleted + orphan_deleted,
-        "media_delete_errors": errors,
+        "deleted_post_id": out["deleted_post_id"],
+        "post_title": out["post_title"],
+        "deleted_media_ids": out["deleted_media_ids"],
+        "media_delete_errors": out["media_delete_errors"],
     }
 
 
@@ -3914,6 +4028,17 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
             f"expected ({site['social_w']}×{site['social_h']})"
         )
 
+    post_title = title
+    post_title_trimmed = False
+    if not cr and len(post_title) > site["title_max"]:
+        post_title = post_title[: site["title_max"] - 1].rstrip() + "…"
+        post_title_trimmed = True
+
+    if site["key"] == "cd":
+        pd = cd_delete_cd_drafts_matching_title(site, post_title)
+        if pd.get("deleted_post_ids"):
+            manual_flags.append(f"replaced_prior_cd_drafts:{pd['deleted_post_ids']}")
+
     prefix = site["prefix"]
     slug = topic
     planner_img_alt = (plan.get("hero_image_alt") or "").strip()
@@ -3980,9 +4105,7 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     else:
         cat_id = resolve_default_category(site, cat_hint)
 
-    post_title = title
-    if not cr and len(post_title) > site["title_max"]:
-        post_title = post_title[: site["title_max"] - 1].rstrip() + "…"
+    if post_title_trimmed:
         print(f"[6b] Post title trimmed to {site['title_max']} chars")
 
     print(f"[7] Creating WordPress draft…")
