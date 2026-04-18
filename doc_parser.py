@@ -1,5 +1,7 @@
 """
-Google Doc HTML intake parser (export?format=html).
+Google Doc HTML intake parser (export?format=html). Supports **tabbed** Docs: if the source URL
+includes ``?tab=t.0`` (or other ``tab=`` values), the export request passes the same parameter so
+Google returns that tab’s content instead of only the default tab.
 
 Uses `cultural_daily_sponsored_rules.md` as the normative contract reference.
 When `CRITICAL_RULES.md` exists in the repo, its full text is prepended to machine intake JSON for Claude
@@ -52,6 +54,36 @@ def extract_google_doc_id(url: str) -> str:
     raise ValueError(f"Could not parse Google Doc id from: {url!r}")
 
 
+def extract_google_doc_tab_id(url: str) -> Optional[str]:
+    """
+    Tab id from a Google Docs **edit** URL query string, e.g. ``?tab=t.0`` or ``&tab=t.1``.
+
+    Returns ``None`` when the parameter is absent. Values are restricted to a safe token shape
+    (letters, digits, ``.``, ``_``, ``-``) as used by Google’s tab ids.
+    """
+    s = (url or "").strip()
+    if not s:
+        return None
+    q = urllib.parse.urlparse(s).query
+    if not q:
+        return None
+    tab = (urllib.parse.parse_qs(q, keep_blank_values=False).get("tab") or [None])[0]
+    if not tab:
+        return None
+    tab = str(tab).strip()
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", tab):
+        return None
+    return tab
+
+
+def google_doc_export_url(doc_id: str, *, tab: Optional[str] = None) -> str:
+    """Public HTML export URL for ``doc_id``, optionally scoped to a document tab."""
+    u = f"https://docs.google.com/document/d/{doc_id}/export?format=html"
+    if tab:
+        u += "&" + urllib.parse.urlencode({"tab": tab})
+    return u
+
+
 def _normalize_gdoc_html(s: str) -> str:
     """NBSP / ZWSP normalization for regex scans (positions stay stable enough for heuristics)."""
     return (
@@ -62,11 +94,16 @@ def _normalize_gdoc_html(s: str) -> str:
     )
 
 
-def fetch_google_doc_export_html(doc_id: str, *, attempts: int = 5) -> str:
+def fetch_google_doc_export_html(
+    doc_id: str,
+    *,
+    tab: Optional[str] = None,
+    attempts: int = 5,
+) -> str:
     """Fetch `export?format=html` with short backoff on transient Google 5xx / 429."""
     import requests as rq
 
-    export_url = f"https://docs.google.com/document/d/{doc_id}/export?format=html"
+    export_url = google_doc_export_url(doc_id, tab=tab)
     headers = {"User-Agent": "ScoutmonkeysDocParser/1.0"}
     last: Any = None
     for i in range(attempts):
@@ -84,7 +121,8 @@ def fetch_google_doc_export_html(doc_id: str, *, attempts: int = 5) -> str:
 
 def fetch_google_doc_export_by_url(url: str, *, attempts: int = 5) -> str:
     doc_id = extract_google_doc_id(url)
-    return fetch_google_doc_export_html(doc_id, attempts=attempts)
+    tab = extract_google_doc_tab_id(url)
+    return fetch_google_doc_export_html(doc_id, tab=tab, attempts=attempts)
 
 
 # ---------------------------------------------------------------------------
@@ -435,9 +473,12 @@ def parse_google_doc_intake(
 
     body_structure = analyze_body_structure(soup, html, trace)
 
+    tab_id = extract_google_doc_tab_id(source_url) if source_url else None
+
     out = {
         "doc_id": doc_id,
         "source_url": source_url,
+        "gdoc_tab_id": tab_id,
         "rules_file": str(rules_path),
         "rules_digest_chars": len(rules_digest),
         "images": images,

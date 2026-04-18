@@ -146,15 +146,14 @@ def gdoc_id_from_url(url: str) -> str:
 
 
 def fetch_gdoc_html(doc_url: str) -> str:
-    doc_id = gdoc_id_from_url(doc_url)
-    export_url = f"https://docs.google.com/document/d/{doc_id}/export?format=html"
-    r = requests.get(
-        export_url,
-        timeout=60,
-        headers={"User-Agent": "ScoutmonkeysPipeline/1.0"},
-    )
-    r.raise_for_status()
-    return r.text
+    """
+    Public Google Doc HTML export. Delegates to ``doc_parser`` so ``?tab=t.0`` (and other ``tab=``)
+    query parameters from edit URLs are forwarded to ``/export?format=html``.
+    """
+    tab = doc_parser.extract_google_doc_tab_id(doc_url)
+    if tab:
+        print(f"[1a] Export tab parameter: {tab!r}")
+    return doc_parser.fetch_google_doc_export_by_url(doc_url, attempts=5)
 
 
 # ---------------------------------------------------------------------------
@@ -1357,10 +1356,13 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     print(f"[1b] Doc intake parse (cultural_daily_sponsored_rules contract)…")
     intake = doc_parser.parse_google_doc_intake(ghtml, source_url=gdoc_url)
     summ = intake.get("summary") or {}
+    tab_note = ""
+    if intake.get("gdoc_tab_id"):
+        tab_note = f" tab={intake['gdoc_tab_id']!r}"
     print(
         f"     images={summ.get('image_count')} credits={summ.get('photo_credit_block_count')} "
         f"links={summ.get('hyperlink_count')} "
-        f"body_links_not_canonical={summ.get('body_links_not_canonical_count', 0)}"
+        f"body_links_not_canonical={summ.get('body_links_not_canonical_count', 0)}{tab_note}"
     )
     flags = intake.get("contract_flags") or []
     if flags:
