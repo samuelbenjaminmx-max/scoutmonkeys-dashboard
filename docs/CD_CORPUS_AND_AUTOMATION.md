@@ -8,6 +8,7 @@ This document answers: **“How do published Our Friends articles look, and what
 |----------|------------|------------------|
 | **`data/our_friends_audit.json`** | Per-post flags (links, headings, `cite_pexels`, etc.) for **published** posts by `OUR_FRIENDS_AUTHOR_ID` (default **19**). **No raw HTML.** | `AUDIT_JSON_OUT=data/our_friends_audit.json python3 scripts/audit_our_friends_posts.py` |
 | **`data/audit_format_profile.json`** | **HTML patterns** from the same cohort: tag counts, H2 skeletons, spacing gaps, `thresholds` for `format_to_audit_standard()`. | `python3 scripts/build_audit_format_profile.py` (needs `WP_*` credentials; fetches `content.rendered` from REST). |
+| **`data/sponsored_last_year_audit.json`** | **Rolling-window** published Our Friends HTML (default **365 days**), same metrics as above—use for “what we shipped lately” vs all-time. | `python3 scripts/audit_sponsored_last_year.py` → also writes **`docs/CULTURAL_DAILY_SPONSORED_FORMAT_GUIDE.md`** (human checklist + tables). |
 | **`data/gdoc_intake_profile.json`** | **Input-side** metrics on Google Doc export HTML (same feature vector as above), plus **per-doc min/max/mean bands** over your URL list. Drives soft warnings in the pipeline scorecard. | `python3 scripts/build_gdoc_intake_profile.py` (no WP; needs reachable Doc URLs — default list `data/training_docs.txt`). Optional: `GDOCS_MAX_URLS`, `--max N`. |
 | **`cultural_daily_sponsored_rules.md`** | Normative rules + aggregates generated from the audit JSON. | `python3 scripts/build_cultural_daily_sponsored_rules.py data/our_friends_audit.json cultural_daily_sponsored_rules.md` |
 
@@ -42,6 +43,10 @@ You should **not** hand-fix these if you run the normal CLI or `remediate-latest
 - **Editor quirks:** If WordPress downscales huge JPEGs, hosting may need `BIG_IMAGE_SIZE_THRESHOLD` (see `CLAUDE.md`).
 - **Media library cruft:** Duplicate uploads from older runs are **not** bulk-deleted by the pipeline; remove orphans in **Media** if needed.
 
+### Operator format guide (human training)
+
+- **`docs/CULTURAL_DAILY_SPONSORED_FORMAT_GUIDE.md`** — regenerated from live WordPress data; read this as “how sponsored posts *look* when published” for the chosen window. It does **not** override `CRITICAL_RULES.md` / `QA.md`.
+
 ## Commands (minimal micromanagement workflow)
 
 ```bash
@@ -63,3 +68,13 @@ python3 scripts/print_cd_audit_summary.py
 Prints thresholds and top patterns from `data/audit_format_profile.json` (no network).
 
 After you build **`data/gdoc_intake_profile.json`**, soft warnings compare the **current Doc** to the **min/max/mean bands** from your URL corpus (e.g. unusually many H2s or images vs typical GDocs you process).
+
+### Refresh sponsored “last year” audit + markdown guide
+
+```bash
+python3 scripts/audit_sponsored_last_year.py --days 365 \
+  --out-json data/sponsored_last_year_audit.json \
+  --out-md docs/CULTURAL_DAILY_SPONSORED_FORMAT_GUIDE.md
+```
+
+Use **`--after 2025-01-01T00:00:00`** instead of **`--days`** for a fixed calendar cutoff.

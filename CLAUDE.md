@@ -86,6 +86,8 @@ python3 scripts/build_cultural_daily_sponsored_rules.py data/our_friends_audit.j
 
 **`data/our_friends_audit.json`** is **committed to this repository** (large file; regenerate with credentials locally when refreshing). It is the **empirical ground truth** for **CRITICAL_RULES.md §12 (audit conformity)**: the pipeline and Claude must not emit HTML or content structures that are not evidenced in that corpus. The generated **`cultural_daily_sponsored_rules.md`** is safe to commit: it embeds aggregate counts and the normative rules summary.
 
+**Rolling HTML audit (Our Friends, published):** `python3 scripts/audit_sponsored_last_year.py` fetches posts in a time window (default **365 days**), aggregates final `content.rendered` formatting, writes **`data/sponsored_last_year_audit.json`**, and regenerates the human-readable **`docs/CULTURAL_DAILY_SPONSORED_FORMAT_GUIDE.md`** (“how sponsored posts look on the site lately”). Use it alongside **`data/gdoc_intake_profile.json`** (Google Doc exports) to align inputs and outputs—see **`docs/CD_CORPUS_AND_AUTOMATION.md`**.
+
 Optional: `AUDIT_MAX_POSTS=500` for a faster sample run.
 
 ## Site rules (`cd` / `dcr`)
