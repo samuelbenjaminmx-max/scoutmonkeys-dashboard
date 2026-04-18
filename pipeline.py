@@ -1518,16 +1518,29 @@ def push_aioseo_and_cdseo(
             ensure_ascii=False,
         ),
     }
+    # AIOSEO expects postId like GET ``…/post?postId=`` — JSON body alone returns "Post ID is missing" on some installs.
     r = requests.post(
         f"{wp}/wp-json/aioseo/v1/post",
         auth=auth,
+        params={"postId": int(post_id)},
         json=body,
         timeout=60,
     )
     if not r.ok:
-        print(f"[warn] aioseo/v1/post {r.status_code}: {r.text[:400]}")
+        r2 = requests.post(
+            f"{wp}/wp-json/aioseo/v1/post/{int(post_id)}",
+            auth=auth,
+            json=body,
+            timeout=60,
+        )
+        if r2.ok:
+            r = r2
+        else:
+            print(f"[warn] aioseo/v1/post {r.status_code}: {r.text[:400]}")
+            if r2.status_code != r.status_code:
+                print(f"[warn] aioseo/v1/post/{post_id} fallback {r2.status_code}: {r2.text[:400]}")
     # 2) cd-seo plugin persists AIOSEO DB + OG (see wp-json /cd-seo/v1/update args)
-    r2 = requests.post(
+    r_cd = requests.post(
         f"{wp}/wp-json/cd-seo/v1/update",
         auth=auth,
         json={
@@ -1539,8 +1552,8 @@ def push_aioseo_and_cdseo(
         },
         timeout=60,
     )
-    if not r2.ok:
-        print(f"[warn] cd-seo/v1/update {r2.status_code}: {r2.text[:400]}")
+    if not r_cd.ok:
+        print(f"[warn] cd-seo/v1/update {r_cd.status_code}: {r_cd.text[:400]}")
 
 
 def find_social_attachment_by_title(site: dict, topic_slug: str, hero_id: int) -> Optional[int]:
@@ -2193,7 +2206,14 @@ def remediate_latest_cd_draft() -> dict:
     pre2 = format_to_audit_standard(pre2, site=site)
     cd_sync_inline_attachment_alts_from_body(site, pre2)
     new_content = pre2.rstrip() + (("\n\n" + tail_suffix) if tail_suffix else "")
-    if new_content != raw_content:
+    # Always persist processed HTML on remediate: strict string compare misses WP serialization drift and
+    # leaves the block editor on old ``P > span > img`` markup while QA passes on REST ``raw``.
+    skip_body = (os.environ.get("REMEDIATE_SKIP_BODY_POST") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    if not skip_body:
         rub = requests.post(
             f"{wp}/wp-json/wp/v2/posts/{post_id}",
             auth=auth,
@@ -2202,7 +2222,7 @@ def remediate_latest_cd_draft() -> dict:
         )
         rub.raise_for_status()
         actions.append(
-            "post body: CD-InsertN uploads, deduped inline imgs, centered figures, single blank lines"
+            "post body: pipeline HTML synced (CD-InsertN, dedupe, centered figures, audit format)"
         )
         raw_content = new_content
         post = requests.get(

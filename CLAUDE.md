@@ -16,7 +16,8 @@ This repository powers the **Scoutmonkeys** publishing dashboard and CLI pipelin
   Optional site: `dcr` (requires `DCR_*` env vars and compatible SEO endpoints).
 - **Repair latest CD draft (CRITICAL rules):**  
   `python pipeline.py remediate-latest cd`  
-  Loads `REPO_ROOT/.env` if needed, then forces **Check This Out**, compacts the focus keyphrase, aligns SEO title to the post title, normalizes the article body (single blank lines, **`CD-{topic}-insert-*`** inline media uploads, centered figures), patches **social** attachment **alt_text**, resolves **`CD-{topic}-social`** for **AIOSEO / cd-seo** OG (not the hero), and re-uploads the social JPEG at **1920×1400** when that attachment is missing or the wrong size. Exits non-zero if `verify_post` still fails (e.g. body link shape).
+  Loads `REPO_ROOT/.env` if needed, then forces **Check This Out**, compacts the focus keyphrase, aligns SEO title to the post title, **always re-saves** the processed article body to WordPress (inline **`CD-InsertN`**, dedupe, centered figures, audit formatting — avoids editor/REST drift), patches **social** attachment **alt_text**, resolves **`CD-{topic}-social`** for **AIOSEO / cd-seo** OG (not the hero), and re-uploads the social JPEG at **1920×1400** when that attachment is missing or the wrong size. Set **`REMEDIATE_SKIP_BODY_POST=1`** only to skip the body POST (debugging). Exits non-zero if `verify_post` still fails (e.g. body link shape).  
+  **Corpus + automation overview:** `docs/CD_CORPUS_AND_AUTOMATION.md` · **Audit HTML profile:** `data/audit_format_profile.json` (rebuild via `scripts/build_audit_format_profile.py`) · **Quick print:** `python3 scripts/print_cd_audit_summary.py`
 - **Web dashboard:** `gunicorn app:app` (Railway sets `PORT`; use `Procfile` locally or on deploy).
 - **Doc intake parse (batch):**  
   `python doc_parser.py --batch data/training_docs.txt --out data/training_parse_report.json`  
@@ -37,6 +38,7 @@ This repository powers the **Scoutmonkeys** publishing dashboard and CLI pipelin
 | `SECRET_KEY` | Flask session signing |
 | `DASHBOARD_PASSWORD` | Dashboard login password |
 | `OUR_FRIENDS_AUTHOR_ID` | Default `19` (Cultural Daily) |
+| `REMEDIATE_SKIP_BODY_POST` | If `1` / `true`, `remediate-latest cd` skips updating post `content` (default: body is always synced) |
 | `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN` | Reserved for future Gmail/Drive OAuth flows |
 
 Restore local `.env` from Railway:
@@ -131,7 +133,7 @@ Optional: `AUDIT_MAX_POSTS=500` for a faster sample run.
 
 After the post exists:
 
-1. `POST /wp-json/aioseo/v1/post` — set title/description/OG custom image URL / keyphrases.
+1. `POST /wp-json/aioseo/v1/post?postId={id}` — set title/description/OG custom image URL / keyphrases (query `postId` required on many installs; path fallback `…/post/{id}` if needed).
 2. `POST /wp-json/cd-seo/v1/update` — resolve `og_image_url` + postmeta parity for the Cultural Daily stack.
 
 If either call fails, the pipeline logs a warning; fix credentials, capabilities, or payload shapes before treating SEO as complete.
