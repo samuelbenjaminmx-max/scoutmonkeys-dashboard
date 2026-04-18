@@ -125,8 +125,10 @@ DONATION_HTML_CD = (
     "</strong></p>"
 )
 
-# When client image has no traceable credit, no HTML citation paragraph is emitted — only this marker before <hr />.
-CLIENT_CITE_NONE_MARKER = "<!--scoutmonkeys-client-cite-none-->"
+# CD AIOSEO title suffix when length allows (never mid-word truncation — see ``build_cd_aioseo_seo_title``).
+CD_SEO_TITLE_SUFFIX = " | Cultural Daily"
+META_DESCRIPTION_MIN = 120
+META_DESCRIPTION_MAX = 160
 
 
 def donation_html_for(site: dict) -> str:
@@ -252,9 +254,11 @@ def _default_plan_system(site: dict) -> str:
         - topic_slug: lowercase kebab-case, ascii, based on the article topic
         - post_title: concise H1-style title (CRITICAL runs may override from machine extract)
         - focus_keyword: short phrase for SEO
-        - seo_title: <= {site["seo_title_max"]} characters
-        - meta_description: <= 160 characters, plain text, grounded in the excerpt only
+        - seo_title: <= 60 characters; hint for AIOSEO (pipeline may re-fit to word boundaries and suffix).
+        - meta_description: 120–160 characters inclusive, plain text, grounded in the excerpt only
         - hero_pexels_query: 3-8 word Pexels search query (required when no client hero)
+        - hero_image_alt: 12–160 characters; plain description of what is visible in the hero/social photo
+          (not the article headline, not a repeat of the H1)
         - photographer_fallback_name: string (Pexels credit hint; may be empty)
         - category_hint: short string like "travel", "film", "books", "food", "music", "theater", "art"
 
@@ -301,10 +305,10 @@ def plan_from_gdoc_html(
                 - post_title MUST match MACHINE_EXTRACTED_H1 exactly (character-for-character).
                 - Do NOT output article_body_html — the pipeline builds the article body only from the Doc HTML.
                 - Do NOT alter donation text — the pipeline appends the canonical donation block; never invent or rewrite it.
-                - focus_keyword: at most 4 words, compact core subject only (never the full H1); the pipeline may shorten further if content relevance scores low.
-                - seo_title (JSON field): on Cultural Daily with CRITICAL_RULES, use only the first 60 characters of MACHINE_EXTRACTED_H1 (display cap); post_title must still be the full H1.
-                - meta_description: <=160 chars; use only wording supported by the plaintext excerpt
-                  (no new factual claims).
+                - focus_keyword: 1–2 words only, core subject (never the full H1); pipeline enforces score ≥70 when possible.
+                - seo_title: optional AIOSEO hint (<=60 chars); the pipeline builds the final AIOSEO title from the H1 with word-safe clipping and optional `` | Cultural Daily`` suffix.
+                - meta_description: 120–160 chars; use only wording supported by the plaintext excerpt (no new factual claims).
+                - hero_image_alt: required short visual description of the hero photograph (never the H1 string).
                 - category_hint must be exactly: Check This Out (never Sponsored).
                 - If MACHINE_CLIENT_IMAGE_SRC is not "(none)", set hero_pexels_query to "" (empty string).
                 - Social image is mandatory: the pipeline always generates and sets OG/social; never omit.
@@ -365,10 +369,10 @@ def plan_from_gdoc_html(
         fix_system = (
             "You repair JSON. Output ONLY one valid JSON object (no markdown fences), "
             "same keys as the Scoutmonkeys planner: topic_slug, post_title, focus_keyword, seo_title, "
-            "meta_description, hero_pexels_query, photographer_fallback_name, category_hint. "
+            "meta_description, hero_pexels_query, hero_image_alt, photographer_fallback_name, category_hint. "
             "Do NOT include article_body_html (omit or empty string). "
             "If CRITICAL_RULES applied, post_title must match MACHINE_EXTRACTED_H1 and hero_pexels_query may be empty when client image exists. "
-            "On Cultural Daily, seo_title must be the first 60 characters of that H1 only."
+            "On Cultural Daily, seo_title is rebuilt in the pipeline from the H1 (word-safe, max 60 chars)."
         )
         fix_user = (
             "The text below was meant to be one JSON object but it is invalid JSON. "
@@ -559,6 +563,179 @@ def first_client_image_src_from_gdoc(ghtml: str) -> Optional[str]:
     return None
 
 
+def _url_key(u: str) -> str:
+    u = (u or "").strip().split("?", 1)[0].strip().lower()
+    return u.rstrip("/")
+
+
+def remove_client_hero_image_from_body_html(body_html: str, client_src: str) -> str:
+    """Hero image is featured_media only — strip the same ``<img>`` from the article body (CD rule)."""
+    if not body_html or not (client_src or "").strip():
+        return body_html
+    soup = BeautifulSoup(body_html, "html.parser")
+    ck = _url_key(client_src)
+    for img in list(soup.find_all("img")):
+        if _url_key(img.get("src") or "") != ck:
+            continue
+        parent = img.parent
+        img.decompose()
+        if parent and getattr(parent, "name", "") == "p":
+            if not parent.get_text(strip=True) and not parent.find("img"):
+                parent.decompose()
+        break
+    return str(soup)
+
+
+def _norm_title_text(t: str) -> str:
+    t = unicodedata.normalize("NFKC", t or "")
+    return re.sub(r"\s+", " ", t).strip().lower()
+
+
+def strip_duplicate_lead_title_from_body_html(body_html: str, h1_text: str) -> str:
+    """H1 lives only in the WordPress title field — remove duplicate lead heading/body title (CD+CRITICAL)."""
+    if not body_html or not (h1_text or "").strip():
+        return body_html
+    want = _norm_title_text(h1_text)
+    soup = BeautifulSoup(body_html, "html.parser")
+    h1 = soup.find("h1")
+    if h1 and _norm_title_text(h1.get_text(" ", strip=True)) == want:
+        h1.decompose()
+    else:
+        first_p = soup.find("p")
+        if first_p:
+            cls = " ".join(first_p.get("class") or []).lower()
+            if "title" in cls and _norm_title_text(first_p.get_text(" ", strip=True)) == want:
+                first_p.decompose()
+            elif _norm_title_text(first_p.get_text(" ", strip=True)) == want:
+                first_p.decompose()
+    return str(soup)
+
+
+def normalize_cd_body_vertical_spacing(html: str) -> str:
+    """At most one blank line between block elements (no triple+ newlines in serialized HTML)."""
+    if not html:
+        return html
+    s = re.sub(r"\n{3,}", "\n\n", html)
+    s = re.sub(r"(</p>)\s*\n\s*\n\s*\n+", r"\1\n\n", s)
+    s = re.sub(r"(</h[12]>)\s*\n\s*\n\s*\n+", r"\1\n\n", s)
+    return s
+
+
+def cd_format_body_inline_images(html: str) -> str:
+    """
+    Center inline ``<img>`` tags, ensure descriptive alt text, and place a following ``Photo:`` credit
+    line in a centered caption paragraph when present.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    for img in list(soup.find_all("img")):
+        src = (img.get("src") or "").strip()
+        if not src.startswith("http"):
+            continue
+        alt0 = (img.get("alt") or img.get("title") or "").strip()
+        if not alt0:
+            alt0 = "Photograph supporting this sponsored article"
+        img["alt"] = alt0
+        cap_txt = ""
+        nxt = img.find_next("p")
+        if nxt and nxt.get_text(" ", strip=True).lower().startswith("photo:"):
+            cap_txt = nxt.get_text(" ", strip=True)
+            nxt.decompose()
+        if img.parent is None or getattr(img.parent, "name", "") != "p":
+            img.wrap(soup.new_tag("p"))
+        par = img.find_parent("p")
+        if par is not None:
+            prev_style = (par.get("style") or "").strip()
+            par["style"] = (prev_style + ";" if prev_style else "") + "text-align:center"
+        if cap_txt and par is not None:
+            cap_p = soup.new_tag("p", attrs={"style": "text-align:center"})
+            em = soup.new_tag("em")
+            em.append(cap_txt)
+            cap_p.append(em)
+            par.insert_after(cap_p)
+    return str(soup)
+
+
+def build_cd_aioseo_seo_title(full_h1: str, planner_hint: str) -> str:
+    """
+    AIOSEO title: max 60 chars, never truncate mid-word; optional `` | Cultural Daily`` when it still fits.
+    """
+    lim = 60
+    hint = (planner_hint or "").strip()
+    if hint and len(hint) <= lim:
+        base = hint
+    else:
+        t = unicodedata.normalize("NFKC", (full_h1 or "").strip())
+        if len(t) <= lim:
+            base = t
+        else:
+            chunk = t[:lim]
+            if chunk[-1].isspace():
+                base = chunk.strip()
+            else:
+                sp = chunk.rfind(" ")
+                base = chunk[:sp].rstrip() if sp >= 12 else re.sub(r"\W+$", "", chunk).strip()
+            if not base:
+                base = t[: lim - 1].rstrip() + "…"
+    suf = CD_SEO_TITLE_SUFFIX
+    if "cultural daily" not in base.lower() and len(base) + len(suf) <= lim:
+        base = (base + suf).strip()
+    if len(base) > lim:
+        base = base[:lim]
+        sp = base.rfind(" ")
+        if sp >= 10:
+            base = base[:sp].rstrip()
+    return base[:lim].strip()
+
+
+def ensure_meta_description_length(meta: str, filler_plain: str) -> str:
+    """Meta description between META_DESCRIPTION_MIN and META_DESCRIPTION_MAX characters."""
+    m = unicodedata.normalize("NFKC", (meta or "").strip())
+    if len(m) > META_DESCRIPTION_MAX:
+        m = m[: META_DESCRIPTION_MAX - 3].rsplit(" ", 1)[0] + "..."
+    if len(m) >= META_DESCRIPTION_MIN:
+        return m[:META_DESCRIPTION_MAX]
+    fill = re.sub(r"\s+", " ", filler_plain or "").strip()
+    if m and fill:
+        room = META_DESCRIPTION_MIN - len(m) - 1
+        if room > 0:
+            extra = fill[: room + 120].rsplit(" ", 1)[0]
+            if len(extra) > room:
+                extra = extra[:room].rsplit(" ", 1)[0]
+            if extra:
+                m = (m + " " + extra).strip()
+    elif fill:
+        m = fill[:META_DESCRIPTION_MAX]
+        if len(m) > META_DESCRIPTION_MAX:
+            m = m[: META_DESCRIPTION_MAX - 3].rsplit(" ", 1)[0] + "..."
+    pad = " Sponsored arts and culture coverage on Cultural Daily."
+    while len(m) < META_DESCRIPTION_MIN:
+        m = (m + pad).strip()
+        if len(m) > META_DESCRIPTION_MAX:
+            m = m[:META_DESCRIPTION_MAX]
+            break
+    return m[:META_DESCRIPTION_MAX]
+
+
+def hero_social_alt_for_cd(
+    *,
+    planner_alt: str,
+    post_title: str,
+    used_client_hero: bool,
+    hero_pexels_query: str,
+    topic_slug: str,
+) -> str:
+    """Hero + social alt: simple photo description — never the article H1 (CRITICAL_RULES)."""
+    tnorm = _norm_title_text(post_title)
+    pa = unicodedata.normalize("NFKC", (planner_alt or "").strip())
+    if pa and _norm_title_text(pa) != tnorm and 8 <= len(pa) <= 180:
+        return pa[:180]
+    slug_phrase = topic_slug.replace("-", " ").strip() or "this story"
+    if used_client_hero:
+        return f"Photograph supplied by the advertiser showing {slug_phrase}"
+    q = (hero_pexels_query or slug_phrase).strip()[:80]
+    return f"Wide banner photograph for article: {q}"
+
+
 def _pil_image_from_src(src: str) -> Image.Image:
     src = (src or "").strip()
     if src.startswith("data:"):
@@ -625,23 +802,23 @@ def refine_focus_keyword_for_content(
     title: str,
     topic_slug: str,
 ) -> str:
-    """If score < 70, try progressively shorter keyphrases; keep best compact candidate."""
+    """1–2 words only; score must reach at least 70 against article text when possible."""
     hay = f"{body}\n{doc_html}\n{title}"
-    base = compact_focus_keyword(focus)
+    base = compact_focus_keyword(focus, max_words=2, max_len=36)
     if not base:
-        base = compact_focus_keyword(topic_slug.replace("-", " "))
+        base = compact_focus_keyword(topic_slug.replace("-", " "), max_words=2, max_len=36)
     candidates: List[str] = []
     words = base.split()
-    for n in range(len(words), 0, -1):
+    for n in range(min(len(words), 2), 0, -1):
         candidates.append(" ".join(words[:n]))
     if words:
         candidates.append(words[0])
-    candidates.append(compact_focus_keyword(topic_slug.replace("-", " ")))
+    candidates.append(compact_focus_keyword(topic_slug.replace("-", " "), max_words=2, max_len=36))
     seen: set[str] = set()
     best = base
     best_score = focus_keyword_content_score(base, hay)
     for cand in candidates:
-        c2 = compact_focus_keyword(cand)
+        c2 = compact_focus_keyword(cand, max_words=2, max_len=36)
         if not c2 or c2 in seen:
             continue
         seen.add(c2)
@@ -650,6 +827,28 @@ def refine_focus_keyword_for_content(
             best, best_score = c2, sc
         if best_score >= 70.0:
             break
+    if best_score < 70.0:
+        for w in topic_slug.replace("-", " ").split():
+            t = compact_focus_keyword(w, max_words=1, max_len=24)
+            if not t or t in seen:
+                continue
+            seen.add(t)
+            sc = focus_keyword_content_score(t, hay)
+            if sc >= 70.0:
+                return t
+        for w in ("culture", "food", "health", "film", "music", "art", "books"):
+            if w in seen:
+                continue
+            sc = focus_keyword_content_score(w, hay)
+            if sc >= 70.0:
+                return w
+        for w in re.findall(r"[a-z][a-z'-]{3,}", (topic_slug + " " + title).lower()):
+            if w in seen or len(w) < 4:
+                continue
+            seen.add(w)
+            sc = focus_keyword_content_score(w, hay)
+            if sc >= 70.0:
+                return w
     return best
 
 
@@ -823,15 +1022,20 @@ def push_aioseo_and_cdseo(
     wp, auth = wp_auth(site)
     st_clip = int(seo_title_max) if seo_title_max is not None else int(site["seo_title_max"])
     # 1) AIOSEO custom endpoint (Cultural Daily)
+    st = (seo.get("seo_title") or "").strip()
+    md = (seo.get("meta_description") or "").strip()
     body = {
         "postId": post_id,
         "post_id": post_id,
-        "title": seo.get("seo_title") or "",
-        "description": seo.get("meta_description") or "",
-        "og_title": seo.get("seo_title") or "",
-        "og_description": seo.get("meta_description") or "",
+        "title": st,
+        "description": md,
+        "og_title": st,
+        "og_description": md,
+        "twitter_title": st,
+        "twitter_description": md,
         "og_image_type": "custom",
         "og_image_custom_url": og_custom_url,
+        "og_image_custom": True,
         "twitter_use_og": True,
         "keyphrases": json.dumps(
             {"focus": {"keyphrase": seo.get("focus_keyword") or ""}},
@@ -1084,7 +1288,6 @@ def verify_post(
     Run QA checks aligned with QA.md / CLAUDE.md / CRITICAL_RULES.md.
     The `seo` dict is accepted for backwards compatibility; live values are read from WP.
     """
-    _ = seo
     print(f"\n[QA] Verifying post {post_id}…")
     wp, auth = wp_auth(site)
     prefix = site["prefix"]
@@ -1123,12 +1326,12 @@ def verify_post(
         chk(f"Post title ≤{title_max} chars", len(raw_title) <= title_max, f"{len(raw_title)} chars")
 
     seo_title = seo_r.get("aioseo_db", {}).get("title") or ""
-    if critical_rules and expect_exact_title and site.get("key") == "cd":
-        exp_seo = (expect_exact_title or "")[: int(site["title_max"])]
+    if site.get("key") == "cd":
+        exp_seo = build_cd_aioseo_seo_title(raw_title, ((seo or {}).get("seo_title") or "").strip())
         chk(
-            "SEO title is first 60 chars of H1 (CRITICAL_RULES / CD display)",
-            (seo_title or "") == exp_seo,
-            f"{len(seo_title)} chars vs expected {len(exp_seo)}",
+            "SEO title matches CD AIOSEO rule (≤60, word-safe, optional suffix)",
+            (seo_title or "").strip() == exp_seo,
+            f"{len(seo_title or '')} chars",
         )
     elif critical_rules and expect_exact_title:
         chk(
@@ -1144,7 +1347,14 @@ def verify_post(
         )
 
     meta = seo_r.get("aioseo_db", {}).get("description") or ""
-    chk("Meta description ≤160 chars", 0 < len(meta) <= 160, f"{len(meta)} chars")
+    if site.get("key") == "cd":
+        chk(
+            "Meta description 120–160 chars (CD)",
+            META_DESCRIPTION_MIN <= len(meta) <= META_DESCRIPTION_MAX,
+            f"{len(meta)} chars",
+        )
+    else:
+        chk("Meta description ≤160 chars", 0 < len(meta) <= 160, f"{len(meta)} chars")
 
     try:
         kw = json.loads(seo_r["aioseo_db"].get("keyphrases") or "{}").get("focus", {}).get(
@@ -1153,7 +1363,16 @@ def verify_post(
     except Exception:
         kw = ""
     chk("Focus keyword set", bool(kw), f"'{kw}'")
-    if critical_rules:
+    body_plain_for_kw = BeautifulSoup(pre_tail, "html.parser").get_text(" ", strip=True)
+    if critical_rules and site.get("key") == "cd":
+        kw_words = len(kw.split()) if kw else 0
+        kws = focus_keyword_content_score(kw, body_plain_for_kw)
+        chk(
+            "Focus keyword 1–2 words, score ≥70 (CD+CRITICAL)",
+            bool(kw) and 0 < kw_words <= 2 and kws >= 69.9,
+            f"{kw_words} words, score={kws:.1f}",
+        )
+    elif critical_rules:
         kw_words = len(kw.split()) if kw else 0
         chk(
             "Focus keyword short (CRITICAL_RULES)",
@@ -1180,7 +1399,14 @@ def verify_post(
     )
 
     h_alt = hero.get("alt_text") or ""
-    chk("Hero alt text descriptive (>10 chars)", len(h_alt) > 10, f'"{h_alt[:50]}"')
+    if site.get("key") == "cd":
+        chk(
+            "Hero alt describes the photo (not the post title)",
+            len(h_alt) > 8 and _norm_title_text(h_alt) != _norm_title_text(raw_title),
+            f'"{h_alt[:70]}"',
+        )
+    else:
+        chk("Hero alt text descriptive (>10 chars)", len(h_alt) > 10, f'"{h_alt[:50]}"')
 
     h_cap = _cap_raw(hero)
     if critical_rules:
@@ -1216,11 +1442,15 @@ def verify_post(
     aioseo_post = requests.get(
         f"{wp}/wp-json/aioseo/v1/post?postId={post_id}", auth=auth, timeout=30
     ).json()
-    og = aioseo_post.get("data", {}).get("currentPost", {}).get("og_image_custom_url") or ""
+    curp = (aioseo_post.get("data") or {}).get("currentPost") or {}
+    og = curp.get("og_image_custom_url") or ""
     og_cd = (seo_r.get("aioseo_db") or {}).get("og_image_url") or ""
     og_ok = bool(og or og_cd)
     og_note = (og or og_cd)[-50:] if og_ok else "missing"
     chk("Social set as OG image (AIOSEO / cd-seo)", og_ok, og_note)
+    if site.get("key") == "cd":
+        og_type = (curp.get("og_image_type") or "").strip().lower()
+        chk("AIOSEO OG image type is custom", og_type == "custom" or bool(og), og_type or "n/a")
 
     chk(
         "Sponsored body links (bold, target=_blank, no nofollow)",
@@ -1245,7 +1475,11 @@ def verify_post(
         )
     )
     cite_client_plain = bool(re.search(r"<p><em>Photo:\s*.+</em></p>", c, re.I))
-    cite_client_none = CLIENT_CITE_NONE_MARKER in c
+    cite_client_none = False
+    if "<!--scoutmonkeys-machine-tail-->" in c:
+        rest = c.split("<!--scoutmonkeys-machine-tail-->", 1)[1]
+        pre_hr = rest.split("<hr", 1)[0] if "<hr" in rest.lower() else rest
+        cite_client_none = ("<p><em>" not in pre_hr) and ("photo:" not in pre_hr.lower())
     cite_ok = cite_pexels or cite_other or cite_client_plain or cite_client_none
     chk("Citation (Pexels / client / none-marker)", cite_ok)
     chk("Citation NOT bold", "<strong>Photo:" not in c)
@@ -1261,14 +1495,16 @@ def verify_post(
 
     if "<!--scoutmonkeys-machine-tail-->" in c:
         tail_rest = c.split("<!--scoutmonkeys-machine-tail-->", 1)[1]
-        hp = tail_rest.find("<hr />")
+        hp = tail_rest.find("<hr")
         dp = tail_rest.find(DONATION_CTA_TEXT_CD)
         if dp < 0:
             dp = tail_rest.find("CLICK HERE TO DONATE")
+        chunk = tail_rest[hp:dp] if hp >= 0 and dp >= hp else ""
+        hr_donation_gap_ok = bool(re.match(r"^\s*<hr\s*/>\s*$", chunk, re.I | re.S))
         chk(
-            "Order: machine tail → hr → donation",
-            hp >= 0 and dp >= 0 and hp < dp,
-            f"hr@{hp} don@{dp}",
+            "Order: citation (optional) → hr → donation; nothing between hr and donation",
+            hp >= 0 and dp >= 0 and hp < dp and hr_donation_gap_ok,
+            f"hr@{hp} don@{dp} gap_ok={hr_donation_gap_ok}",
         )
     else:
         cp = c.find("Photo:")
@@ -1382,7 +1618,15 @@ def remediate_latest_cd_draft() -> dict:
     slug = _parse_topic_slug_from_attachment_title(h_title, site["prefix"])
     raw_title = (post.get("title") or {}).get("raw") or (post.get("title") or {}).get("rendered") or ""
     hero_alt = (hero.get("alt_text") or "").strip()
-    alt = hero_alt or raw_title.strip() or "Article"
+    caph = _cap_raw(hero)
+    used_pex = "pexels" in caph.lower()
+    alt = hero_social_alt_for_cd(
+        planner_alt=hero_alt if hero_alt and _norm_title_text(hero_alt) != _norm_title_text(raw_title) else "",
+        post_title=raw_title,
+        used_client_hero=not used_pex,
+        hero_pexels_query=slug.replace("-", " "),
+        topic_slug=slug,
+    )
 
     sid = resolve_social_id(wp, auth, post_id, hero_id)
     regen_social = False
@@ -1416,7 +1660,7 @@ def remediate_latest_cd_draft() -> dict:
         assert social_img.size == (site["social_w"], site["social_h"]), social_img.size
         cap = _cap_raw(hero)
         if cap and not cap.startswith("Photo:"):
-            cap = f"Photo: {cap}"
+            cap = f"Photo: {cap}" if "pexels" in cap.lower() else ""
         prefix = site["prefix"]
         social_fn = f"{prefix}-{slug}-social.jpg"
         sm = wp_upload_jpeg(
@@ -1452,13 +1696,14 @@ def remediate_latest_cd_draft() -> dict:
         )
     except Exception:
         kw = ""
-    focus = compact_focus_keyword((kw or slug.replace("-", " ")).strip())
-    meta = ((seo_r.get("aioseo_db") or {}).get("description") or "")[:160]
-    if not meta:
-        meta = (raw_title[:157] + "...") if len(raw_title) > 160 else raw_title
+    focus = compact_focus_keyword((kw or slug.replace("-", " ")).strip(), max_words=2, max_len=36)
+    raw_content = (post.get("content") or {}).get("raw") or ""
+    raw_plain = BeautifulSoup(raw_content, "html.parser").get_text(" ", strip=True)
+    meta_raw = (seo_r.get("aioseo_db") or {}).get("description") or ""
+    meta = ensure_meta_description_length(meta_raw or raw_title, raw_plain)
     seo = {
         "focus_keyword": focus,
-        "seo_title": (raw_title or "")[: int(site["title_max"])],
+        "seo_title": build_cd_aioseo_seo_title(raw_title, ""),
         "meta_description": meta,
         "excerpt": meta,
     }
@@ -1469,7 +1714,7 @@ def remediate_latest_cd_draft() -> dict:
         social_url,
         seo_title_max=60,
     )
-    actions.append("aioseo+cd-seo: focus compact, seo_title=H1[:60], og_image set")
+    actions.append("aioseo+cd-seo: focus ≤2 words, CD seo_title/meta, og_image set")
 
     qa = verify_post(
         site,
@@ -1596,27 +1841,40 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
                 print(f"[2c] Forcing post_title to extracted H1 (was {len(title)} chars, expected exact match)")
                 manual_flags.append("forced_h1_from_extract")
             title = machine_h1
-        focus = compact_focus_keyword(focus or topic.replace("-", " "))
-        if not meta:
-            meta = derive_meta_from_gdoc_first_paragraph(ghtml)[:160]
-        # SEO title for plugins / display: first 60 chars of H1 only; post title stays full H1.
         if site["key"] == "cd":
-            seo_title = (title or "")[: int(site["title_max"])]
+            focus = compact_focus_keyword(focus or topic.replace("-", " "), max_words=2, max_len=36)
         else:
+            focus = compact_focus_keyword(focus or topic.replace("-", " "))
+        if not meta:
+            meta = derive_meta_from_gdoc_first_paragraph(ghtml)
+        if site["key"] != "cd":
             seo_title = title
         cat_hint = "Check This Out"
         if client_src:
             hero_q = ""
 
-    if not cr:
+    if not cr and site["key"] != "cd":
         seo_title = seo_title[: site["seo_title_max"]]
+
+    if site["key"] == "cd":
+        excerpt_long = planner_plaintext_excerpt_from_gdoc(ghtml, max_chars=80_000)
+        base_meta = (meta or "").strip() or derive_meta_from_gdoc_first_paragraph(ghtml)
+        meta = ensure_meta_description_length(base_meta, excerpt_long)
+        seo_title = build_cd_aioseo_seo_title(title, (plan.get("seo_title") or "").strip())
 
     # CRITICAL_RULES #2 / operator contract: article HTML never from Claude — only Doc export + code normalization.
     print("[2a] Article body from Google Doc HTML export (Claude article_body_html ignored).")
     manual_flags.append("article_body_source:google_doc_export")
     body = extract_google_doc_body_inner_html(ghtml)
+    if site["key"] == "cd" and client_src:
+        body = remove_client_hero_image_from_body_html(body, client_src)
+    if site["key"] == "cd" and cr and machine_h1:
+        body = strip_duplicate_lead_title_from_body_html(body, machine_h1)
     body = canonicalize_body_http_links_cd(site, body)
     body = normalize_cd_body_support_links_for_dofollow(site, body)
+    if site["key"] == "cd":
+        body = cd_format_body_inline_images(body)
+        body = normalize_cd_body_vertical_spacing(body)
     if cr and site["key"] == "cd":
         focus = refine_focus_keyword_for_content(
             focus, body=body, doc_html=ghtml, title=title, topic_slug=topic
@@ -1664,10 +1922,17 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
 
     prefix = site["prefix"]
     slug = topic
-    if client_unknown_credit:
-        alt = title
+    planner_img_alt = (plan.get("hero_image_alt") or "").strip()
+    if site["key"] == "cd":
+        alt = hero_social_alt_for_cd(
+            planner_alt=planner_img_alt,
+            post_title=title,
+            used_client_hero=used_client_hero,
+            hero_pexels_query=hero_q,
+            topic_slug=topic,
+        )
     elif cr:
-        alt = title
+        alt = f"Sponsored article banner image for {topic.replace('-', ' ')}"
     else:
         alt = f"{title} — banner image highlighting the story's subject matter."
 
@@ -1692,12 +1957,7 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     if cite_html:
         tail = "<!--scoutmonkeys-machine-tail-->\n" + cite_html + "\n<hr />\n" + donation_html_for(site)
     else:
-        tail = (
-            "<!--scoutmonkeys-machine-tail-->\n"
-            + CLIENT_CITE_NONE_MARKER
-            + "\n<hr />\n"
-            + donation_html_for(site)
-        )
+        tail = "<!--scoutmonkeys-machine-tail-->\n<hr />\n" + donation_html_for(site)
     content = body.rstrip() + "\n\n" + tail
 
     seo = {
@@ -1738,7 +1998,7 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         post_id,
         seo,
         social_url,
-        seo_title_max=(60 if cr and site["key"] == "cd" else (500 if cr else None)),
+        seo_title_max=(60 if site["key"] == "cd" else (500 if cr else None)),
     )
 
     sid = resolve_social_id(site["wp_url"], (site["wp_user"], site["wp_pass"]), post_id, hero_id)
