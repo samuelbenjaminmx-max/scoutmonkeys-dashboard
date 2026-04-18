@@ -24,7 +24,7 @@ These two rules override informal wording elsewhere and apply to **every** Scout
 
 2. **Hero image is mandatory** — WordPress **`featured_media`** must always be the pipeline-resized **Pexels** hero at **975 × 250** (CD). If the Google Doc includes **no** client hero, the pipeline **still** runs Pexels search with **fallback queries** until a usable frame is found. A post must **never** ship without a hero.
 
-**Parser note:** `doc_parser` classifies `pexels.com/@…` and `pexels.com/photo/…` (and `/videos/`) as **`D_A_05_pexels_reference`** (attribution), not a generic commercial paid anchor.
+**Parser note:** `doc_parser` inventories every http(s) `<a>` with the same shape fields (bold, `target`, `nofollow`, …). There is no editorial-vs-paid taxonomy — every body URL is expected to become a paid dofollow anchor in pipeline output.
 
 ## Corpus note
 

@@ -191,11 +191,11 @@ def plan_from_gdoc_html(
         You are the Scoutmonkeys sponsored-content formatter for {site["site_label"]}.
         Convert the supplied Google Docs HTML into pipeline JSON.
 
-        ABSOLUTE RULES (no exceptions):
-        1) Every article is sponsored. Every outbound http(s) link in article_body_html is a paid
-           dofollow commercial anchor: exactly
+        HARD RULE — no exceptions, no alternate link classes:
+        1) Every article on this site is sponsored paid content. Every outbound http(s) link in
+           article_body_html is a paid dofollow anchor, exactly:
            <a href="URL" target="_blank"><strong>anchor text</strong></a>
-           Never use rel="nofollow" on those links. Never invent an "editorial" treatment for body links.
+           Never use rel="nofollow" on body links. Do not label or treat any body link as editorial.
            (The pipeline adds the Pexels photo citation + donation tail separately — do not include them.)
         2) If the Google Doc has no usable client hero image, you MUST still output a strong
            hero_pexels_query (3–8 words) so the pipeline can always source a Pexels banner. Never omit
@@ -215,9 +215,9 @@ def plan_from_gdoc_html(
         - photographer_fallback_name: string
         - category_hint: short string like "travel", "film", "books", "food", "music", "theater", "art"
 
-        If MACHINE_INTAKE_JSON is present, treat it as authoritative counts and link inventory from a
-        deterministic parser aligned with cultural_daily_sponsored_rules.md. Preserve outbound URLs and
-        anchor meaning; rewrite every commercial body link into the canonical paid anchor shape above.
+        If MACHINE_INTAKE_JSON is present, it lists each http(s) anchor with shape hints only
+        (bold, target_blank, nofollow, inline color). There is no parser “classification” of links —
+        every listed body URL must end up in the canonical paid anchor shape above.
         """
     ).strip()
 
@@ -245,7 +245,7 @@ def plan_from_gdoc_html(
             "same keys and semantics as the Scoutmonkeys pipeline: topic_slug, post_title, "
             "article_body_html, focus_keyword, seo_title, meta_description, hero_pexels_query, "
             "photographer_fallback_name, category_hint. "
-            "Preserve the sponsored-site contract: every body http(s) link must be "
+            "Hard site rule: every body http(s) link is paid dofollow — "
             "<a href=… target=_blank><strong>…</strong></a> with no rel=nofollow; hero_pexels_query non-empty."
         )
         fix_user = (
@@ -550,15 +550,12 @@ def _html_before_machine_tail(raw: str) -> str:
 
 def verify_sponsored_body_links(html_before_tail: str) -> Tuple[bool, str]:
     """
-    Every commercial outbound body link must be dofollow, target=_blank, bold inner anchor.
-    Pexels http(s) URLs in the fragment are skipped (attribution only).
+    Every outbound body http(s) link: dofollow, target=_blank, bold inner anchor (hard site rule).
     """
     soup = BeautifulSoup(html_before_tail, "html.parser")
     for a in soup.find_all("a"):
         href = (a.get("href") or "").strip()
         if not re.match(r"https?://", href, re.I):
-            continue
-        if re.search(r"pexels\.com/", href, re.I):
             continue
         rel = a.get("rel")
         rel_s = " ".join(rel) if isinstance(rel, list) else (rel or "")
@@ -765,8 +762,8 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     summ = intake.get("summary") or {}
     print(
         f"     images={summ.get('image_count')} credits={summ.get('photo_credit_block_count')} "
-        f"links={summ.get('hyperlink_count')} canon_paid={summ.get('paid_anchor_count')} "
-        f"sponsored_targets={summ.get('sponsored_body_link_count')}"
+        f"links={summ.get('hyperlink_count')} "
+        f"body_links_not_canonical={summ.get('body_links_not_canonical_count', 0)}"
     )
     flags = intake.get("contract_flags") or []
     if flags:

@@ -2,13 +2,10 @@
 Google Doc HTML intake parser (export?format=html).
 
 Uses `cultural_daily_sponsored_rules.md` as the normative contract reference.
-Implements an explicit decision tree for images, credits, links, paid anchors,
-and body structure so `pipeline.py` can gate Anthropic planning on facts.
-
-Sponsored link model: every commercial outbound body hyperlink on this site is
-treated as a paid dofollow anchor obligation (see `CLAUDE.md`). Pexels profile/photo
-URLs are classified separately as attribution references (`D_A_05_pexels_reference`),
-not commercial paid placements.
+Implements an explicit decision tree for images, credits, and body structure.
+**Http(s) anchors are inventoried only** (href, anchor text, bold, target, nofollow,
+inline color) — there is no editorial-vs-paid taxonomy: on this site every body
+link is a paid dofollow obligation (`CLAUDE.md`).
 
 Run batch analysis:
 
@@ -241,22 +238,35 @@ def classify_photo_credit_block(el: Tag, trace: List[dict]) -> Optional[dict]:
     }
 
 
-def classify_anchor(a: Tag, trace: List[dict]) -> dict:
-    """D_A_* hyperlinks + canonical paid-anchor detection (sponsored-only site model)."""
+def body_link_shape_canonical(row: dict) -> bool:
+    """Canonical sponsored body anchor per site contract (matches pipeline QA)."""
+    return bool(
+        row.get("has_strong")
+        and row.get("target_blank")
+        and not row.get("has_nofollow")
+        and not row.get("inline_color_on_anchor")
+    )
+
+
+def record_body_anchor(a: Tag, trace: List[dict]) -> Optional[dict]:
+    """
+    Inventory one <a> for http(s) hrefs only — shape hints for Claude, not a link taxonomy.
+    """
     raw_href = (a.get("href") or "").strip()
     href = normalize_href(raw_href)
     if not href or href.startswith("#"):
-        _trace(trace, "D_A", "D_A_00_skip", href[:40])
-        return {"case": "D_A_00_skip", "href": href, "anchor_text": "", "paid_style": False}
+        _trace(trace, "LINK", "skip_fragment", href[:40])
+        return None
 
     scheme = urllib.parse.urlparse(href).scheme.lower()
     if scheme in ("mailto", "tel", "javascript", "data"):
-        _trace(trace, "D_A", "D_A_01_non_http_scheme", scheme)
-        return {"case": "D_A_01_non_http_scheme", "href": href[:200], "anchor_text": "", "paid_style": False}
+        _trace(trace, "LINK", "skip_non_http", scheme)
+        return None
 
     rel = (a.get("rel") or []) if isinstance(a.get("rel"), list) else (a.get("rel") or "").split()
     if isinstance(rel, str):
         rel = rel.split()
+    rel_s = " ".join(rel) if rel else ""
 
     inner = a.decode_contents() or ""
     anchor_text = a.get_text(" ", strip=True)[:500]
@@ -268,52 +278,21 @@ def classify_anchor(a: Tag, trace: List[dict]) -> dict:
     )
     style = a.get("style") or ""
     span_color = any(_has_inline_color(t.get("style", "")) for t in a.find_all("span"))
+    inline_color = _has_inline_color(style) or span_color
+    has_nofollow = "nofollow" in rel_s.lower()
+    target_blank = (a.get("target") or "").lower() == "_blank"
 
-    # Stock / attribution URLs — not commercial paid placements (machine citation is separate).
-    if re.search(r"https?://(?:www\.)?pexels\.com/(?:@|photo/|videos?/)", href, re.I):
-        _trace(trace, "D_A", "D_A_05_pexels_reference", href[:120])
-        return {
-            "case": "D_A_05_pexels_reference",
-            "href": href[:800],
-            "anchor_text": anchor_text,
-            "paid_style": False,
-            "has_strong": strong_inside,
-            "rel": " ".join(rel) if rel else "",
-            "inline_color_on_anchor": _has_inline_color(style) or span_color,
-        }
-
-    nofollow = "nofollow" in rel
-    if strong_inside and not nofollow and not _has_inline_color(style) and not span_color:
-        _trace(trace, "D_A", "D_A_10_paid_style_clean", href[:120])
-        case = "D_A_10_paid_style_clean"
-        paid = True
-    elif strong_inside and nofollow:
-        _trace(trace, "D_A", "D_A_11_paid_style_nofollow", href[:120])
-        case = "D_A_11_paid_style_nofollow"
-        paid = True
-    elif strong_inside and (_has_inline_color(style) or span_color):
-        _trace(trace, "D_A", "D_A_12_paid_style_inline_color", href[:120])
-        case = "D_A_12_paid_style_inline_color"
-        paid = True
-    elif strong_inside:
-        _trace(trace, "D_A", "D_A_13_paid_style_other", href[:120])
-        case = "D_A_13_paid_style_other"
-        paid = True
-    else:
-        # No “editorial” escape hatch: non-Pexels http(s) anchors must become canonical paid links in output.
-        _trace(trace, "D_A", "D_A_20_sponsored_format_incomplete", href[:120])
-        case = "D_A_20_sponsored_format_incomplete"
-        paid = False
-
-    return {
-        "case": case,
+    row = {
         "href": href[:800],
         "anchor_text": anchor_text,
-        "paid_style": paid,
         "has_strong": strong_inside,
-        "rel": " ".join(rel) if rel else "",
-        "inline_color_on_anchor": _has_inline_color(style) or span_color,
+        "target_blank": target_blank,
+        "has_nofollow": has_nofollow,
+        "inline_color_on_anchor": inline_color,
+        "rel": rel_s,
     }
+    _trace(trace, "LINK", "http", href[:120])
+    return row
 
 
 def analyze_body_structure(soup: BeautifulSoup, full_html: str, trace: List[dict]) -> dict:
@@ -388,12 +367,14 @@ def contract_flags_from_intake(intake: dict) -> List[str]:
             flags.append("source_citation_noncanonical_shape")
 
     for a in intake.get("hyperlinks") or []:
-        if a.get("case") == "D_A_11_paid_style_nofollow":
-            flags.append("source_paid_link_has_nofollow")
-        if a.get("case") == "D_A_12_paid_style_inline_color":
-            flags.append("source_paid_link_inline_color")
-        if a.get("case") == "D_A_20_sponsored_format_incomplete":
-            flags.append("source_body_link_missing_canonical_sponsored_format")
+        if a.get("has_nofollow"):
+            flags.append("source_body_link_has_nofollow")
+        if a.get("inline_color_on_anchor"):
+            flags.append("source_body_link_inline_color")
+        if not a.get("has_strong"):
+            flags.append("source_body_link_missing_bold")
+        if not a.get("target_blank"):
+            flags.append("source_body_link_missing_target_blank")
 
     return sorted(set(flags))
 
@@ -442,16 +423,11 @@ def parse_google_doc_intake(
 
     hyperlinks: List[dict] = []
     for a in soup.find_all("a"):
-        row = classify_anchor(a, trace)
-        if row["case"] != "D_A_00_skip":
+        row = record_body_anchor(a, trace)
+        if row is not None:
             hyperlinks.append(row)
 
-    paid_anchors = [h for h in hyperlinks if h.get("paid_style")]
-    sponsored_body_targets = [
-        h
-        for h in hyperlinks
-        if h.get("case") not in ("D_A_01_non_http_scheme", "D_A_05_pexels_reference")
-    ]
+    not_canonical = sum(1 for h in hyperlinks if not body_link_shape_canonical(h))
 
     body_structure = analyze_body_structure(soup, html, trace)
 
@@ -463,14 +439,12 @@ def parse_google_doc_intake(
         "images": images,
         "photo_credits": photo_credits,
         "hyperlinks": hyperlinks,
-        "paid_anchors": paid_anchors,
         "body_structure": body_structure,
         "summary": {
             "image_count": len(images),
             "photo_credit_block_count": len(photo_credits),
             "hyperlink_count": len(hyperlinks),
-            "paid_anchor_count": len(paid_anchors),
-            "sponsored_body_link_count": len(sponsored_body_targets),
+            "body_links_not_canonical_count": not_canonical,
         },
     }
     out["contract_flags"] = contract_flags_from_intake(out)

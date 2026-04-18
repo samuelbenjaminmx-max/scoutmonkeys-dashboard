@@ -16,7 +16,7 @@ This repository powers the **Scoutmonkeys** publishing dashboard and CLI pipelin
 - **Web dashboard:** `gunicorn app:app` (Railway sets `PORT`; use `Procfile` locally or on deploy).
 - **Doc intake parse (batch):**  
   `python doc_parser.py --batch data/training_docs.txt --out data/training_parse_report.json`  
-  Every `pipeline.py` run parses the export HTML first (`doc_parser.parse_google_doc_intake`) and passes structured JSON to Claude alongside `cultural_daily_sponsored_rules.md` contract heuristics.  
+  Every `pipeline.py` run parses the export HTML first (`doc_parser.parse_google_doc_intake`) and passes structured JSON to Claude alongside `cultural_daily_sponsored_rules.md`. **Link rows are inventory + shape hints only** (href, bold, `target`, `nofollow`) — not an editorial/paid taxonomy.  
   The batch fetch retries transient Google **500 / 502 / 503 / 429** responses; **401** (private) and **410** (removed) docs stay in `training_parse_report.json` → `errors`.
 
 ## Environment variables
@@ -97,17 +97,18 @@ Optional: `AUDIT_MAX_POSTS=500` for a faster sample run.
   `https://docs.google.com/document/d/{id}/export?format=html`
 - The document must be readable without Google OAuth (typically **Anyone with the link can view**). Gmail OAuth env vars are reserved for future Drive/Docs API use.
 
-## Sponsored-only contract (absolute)
+## Sponsored paid content (hard rule)
 
-1. **Every article is sponsored.** Every outbound `http(s):` link in the **article body** (before the machine tail) is a **paid dofollow** link:  
-   `<a href="URL" target="_blank"><strong>anchor</strong></a>` — **no** `rel="nofollow"`, **no** inline `color` styles, **no** “editorial link” exception.  
-   The **Pexels photographer profile** line in the machine tail is the only deliberate `nofollow` anchor (attribution, italic — see **Tail structure**).
+1. **Every article on this site is sponsored paid content.** Every outbound `http(s):` link in the **article body** (before the machine tail) is a **paid dofollow** link — **no exceptions**, **no** separate “editorial” link type, **no** parser classification step:  
+   `<a href="URL" target="_blank"><strong>anchor</strong></a>` — **no** `rel="nofollow"`, **no** inline `color` styles.  
+   `doc_parser` only **inventories** anchors and records shape hints (`has_strong`, `target_blank`, `has_nofollow`, …) so Claude and QA can enforce the same shape.  
+   The **Pexels photographer profile** line in the **machine tail** is the only deliberate `nofollow` anchor (attribution, italic — see **Tail structure**).
 2. **Hero is always Pexels-backed.** If the client Doc has **no** usable hero image, the pipeline **must** still search Pexels (primary query plus fallbacks) and attach a resized hero as `featured_media`. **Never** publish a post without a hero image.
 
 ## Anthropic (Claude)
 
 - Claude turns Doc HTML into structured JSON (topic slug, body HTML, SEO fields, Pexels query).
-- Body links follow the **Sponsored-only contract** above — not the historical mix of styles seen in older corpus posts.
+- Body links follow the **hard sponsored rule** above — there is no alternate editorial treatment in prompts or parser output.
 
 ## Pexels
 
