@@ -2,6 +2,20 @@
 
 This repository powers the **Scoutmonkeys** publishing dashboard and CLI pipeline: Google Docs → WordPress **drafts** for **Cultural Daily (`cd`)** and optionally **DCR (`dcr`)**, with **AIOSEO + cd-seo** integration, **Pexels** imagery, **Anthropic** layout planning, **Twilio WhatsApp** draft notifications, and automated **QA** aligned with `QA.md`.
 
+## Rule 0 — Prime Directive
+
+**The Google Doc is the absolute source of truth. The WordPress post must be a faithful mirror of the Doc.**
+
+Same section order. Same headings. Same images at the same positions. Same wording. The pipeline never invents, rearranges, or supplements.
+
+Every image in the Doc has exactly one job:
+- **First image** → hero (featured image) + AIOSEO social image only. Stripped from the body completely.
+- **Every other image** → body, at its exact document position. Never moved, never reordered, never grouped.
+
+If a section in the Doc has no image, it stays image-free. If the Doc places an image under a heading, that image appears under that same heading in WordPress — not before, not after, not somewhere else. The pipeline's only job is to faithfully execute what the Doc already says.
+
+This rule overrides any pipeline "optimization," layout preference, or AI judgment. When in doubt: the Doc wins.
+
 ## Authority
 
 0. **`CRITICAL_RULES.md`** — when this file exists in the repository, it **overrides** every other instruction (including this file, `QA.md`, `cultural_daily_sponsored_rules.md`, and default Claude behavior). The pipeline loads it into Anthropic context and branches on verbatim H1, faithful body copy, client hero images (no Pexels replacement when a Doc image exists), **Check This Out** category on CD, compact focus keyword, and stricter QA hooks. **§12 AUDIT CONFORMITY:** output must not introduce HTML/formatting/content patterns that are absent from the audited Our Friends corpus in **`data/our_friends_audit.json`** (3,208 posts when last generated). When unsure, consult that JSON (or regenerate it via `scripts/audit_our_friends_posts.py`) before inventing structure; if a pattern is not evidenced there, do not use it.

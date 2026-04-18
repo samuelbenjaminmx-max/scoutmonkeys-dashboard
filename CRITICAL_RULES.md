@@ -2,6 +2,18 @@ CRITICAL CULTURAL DAILY RULES — DO NOT VIOLATE
 
 These rules override any general AI behavior, summarization behavior, rewriting behavior, SEO optimization behavior, or “best judgment” behavior.
 
+0. **RULE 0 — THE GOOGLE DOC IS THE ABSOLUTE SOURCE OF TRUTH**
+
+   The WordPress post must be a faithful mirror of the Google Doc — same section order, same headings, same images in the same positions, same wording. The pipeline never invents content, never rearranges sections, and never supplements with outside material.
+
+   Every element in the Doc has exactly one job:
+   - **First image** → hero (featured image) and AIOSEO social image only. Never in the body.
+   - **Every other image** → body, at its exact document position. Not moved, not grouped, not reordered.
+   - **Headings** → published as-is, in document order.
+   - **Body text** → published verbatim from the Doc export. Claude does not rewrite it.
+
+   The pipeline's only job is to faithfully execute what the Doc already says. If the Doc has no image in a section, that section stays image-free. If the Doc has an image under a heading, it appears under that same heading in WordPress — nowhere else. When in doubt: the Doc wins.
+
 1. **H1 / ARTICLE TITLE** — Never shorten, never rewrite, never improve. Use the exact H1 as the WordPress **post title**. The H1 must appear **only once** (in the title field). If the same text appears as the first line of the body, the pipeline removes it from the body.
 
 2. **ARTICLE BODY** — Preserve Doc wording. The pipeline builds the HTML body from the Google Doc export in code (never from Claude). Claude only receives a plaintext excerpt for metadata.
