@@ -13,3 +13,5 @@ These rules override any general AI behavior, summarization behavior, rewriting 
 9. SOCIAL IMAGE: Always mandatory. Never skip.
 10. SOCIAL IMAGE SIZE: Exactly 1920x1400. No approximations.
 11. AI LIBERTY POLICY: No creative liberties on H1, body, donation, category, images, keywords. When uncertain — flag for manual review, do not improvise.
+
+12. AUDIT CONFORMITY RULE — The pipeline must never produce output that does not appear in the `our_friends_audit.json` dataset. If a formatting pattern, HTML structure, or content element has never appeared in the 3,208 audited Cultural Daily Our Friends posts, it must not be used. When uncertain about any formatting decision, check `our_friends_audit.json` first. If the pattern is not found there, do not use it.

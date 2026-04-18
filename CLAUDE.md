@@ -4,7 +4,7 @@ This repository powers the **Scoutmonkeys** publishing dashboard and CLI pipelin
 
 ## Authority
 
-0. **`CRITICAL_RULES.md`** — when this file exists in the repository, it **overrides** every other instruction (including this file, `QA.md`, `cultural_daily_sponsored_rules.md`, and default Claude behavior). The pipeline loads it into Anthropic context and branches on verbatim H1, faithful body copy, client hero images (no Pexels replacement when a Doc image exists), **Check This Out** category on CD, compact focus keyword, and stricter QA hooks.
+0. **`CRITICAL_RULES.md`** — when this file exists in the repository, it **overrides** every other instruction (including this file, `QA.md`, `cultural_daily_sponsored_rules.md`, and default Claude behavior). The pipeline loads it into Anthropic context and branches on verbatim H1, faithful body copy, client hero images (no Pexels replacement when a Doc image exists), **Check This Out** category on CD, compact focus keyword, and stricter QA hooks. **§12 AUDIT CONFORMITY:** output must not introduce HTML/formatting/content patterns that are absent from the audited Our Friends corpus in **`data/our_friends_audit.json`** (3,208 posts when last generated). When unsure, consult that JSON (or regenerate it via `scripts/audit_our_friends_posts.py`) before inventing structure; if a pattern is not evidenced there, do not use it.
 1. **`QA.md`** — must-pass checklist before calling a job complete (subordinate to `CRITICAL_RULES.md` when both apply).
 2. **This file** — full operating rules for humans and automation.
 3. **Live WordPress / plugin behavior** — if production differs, update the docs and `pipeline.py` together.
@@ -82,7 +82,7 @@ AUDIT_JSON_OUT=data/our_friends_audit.json python3 scripts/audit_our_friends_pos
 python3 scripts/build_cultural_daily_sponsored_rules.py data/our_friends_audit.json cultural_daily_sponsored_rules.md
 ```
 
-`data/our_friends_audit.json` is gitignored (large, credential-derived). The generated **`cultural_daily_sponsored_rules.md`** is safe to commit: it embeds aggregate counts and the normative rules summary.
+`data/our_friends_audit.json` is usually gitignored (large, credential-derived) but may exist locally after an audit run. It is the **empirical ground truth** for **CRITICAL_RULES.md §12 (audit conformity)**: the pipeline and Claude must not emit HTML or content structures that are not evidenced in that corpus. The generated **`cultural_daily_sponsored_rules.md`** is safe to commit: it embeds aggregate counts and the normative rules summary.
 
 Optional: `AUDIT_MAX_POSTS=500` for a faster sample run.
 

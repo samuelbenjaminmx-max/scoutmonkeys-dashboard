@@ -26,6 +26,7 @@ import doc_parser
 
 REPO_ROOT = Path(__file__).resolve().parent
 CRITICAL_RULES_PATH = REPO_ROOT / "CRITICAL_RULES.md"
+OUR_FRIENDS_AUDIT_JSON = REPO_ROOT / "data" / "our_friends_audit.json"
 
 # ---------------------------------------------------------------------------
 # Environment
@@ -223,7 +224,7 @@ def _extract_json_blob(text: str) -> dict:
 
 
 def _default_plan_system(site: dict) -> str:
-    return textwrap.dedent(
+    base = textwrap.dedent(
         f"""
         You are the Scoutmonkeys sponsored-content formatter for {site["site_label"]}.
         Convert the supplied Google Docs HTML into pipeline JSON.
@@ -257,6 +258,20 @@ def _default_plan_system(site: dict) -> str:
         every listed body URL must end up in the canonical paid anchor shape above.
         """
     ).strip()
+    if site.get("key") == "cd":
+        base = (
+            base
+            + "\n\n"
+            + textwrap.dedent(
+                """
+                AUDIT CONFORMITY (Cultural Daily): When `data/our_friends_audit.json` exists, it is the
+                empirical corpus of Our Friends posts (see CRITICAL_RULES.md §12). Do not invent novel
+                HTML layout patterns, wrapper elements, or content blocks that have no precedent in that
+                audit. Prefer minimal transforms of the supplied Google Doc HTML.
+                """
+            ).strip()
+        )
+    return base
 
 
 def plan_from_gdoc_html(
@@ -292,6 +307,9 @@ def plan_from_gdoc_html(
                 - If MACHINE_CLIENT_IMAGE_SRC is not "(none)", set hero_pexels_query to "" (empty string).
                 - Social image is mandatory: the pipeline always generates and sets OG/social; never omit.
                 - Social output must be exactly 1920×1400 pixels (handled by the pipeline resize — do not suggest other sizes).
+                - AUDIT CONFORMITY (§12): Do not introduce HTML structures or formatting patterns that are
+                  not evidenced in data/our_friends_audit.json (Our Friends corpus). Prefer preserving the
+                  Doc's tags; only apply patterns known from that audit + cultural_daily_sponsored_rules.md.
                 """
             ).strip()
         )
@@ -331,6 +349,8 @@ def plan_from_gdoc_html(
         user_parts.append(
             "\nMACHINE_CLIENT_IMAGE_SRC:\n" + (client_image_src or "(none)") + "\n"
         )
+    if critical_rules and site.get("key") == "cd":
+        user_parts.append("\n" + audit_conformity_machine_note() + "\n")
     user_parts.append(machine)
     user_parts.append("\nReturn JSON only.")
     user = "".join(user_parts)
@@ -476,6 +496,35 @@ def load_critical_rules_text(max_chars: int = 28_000) -> str:
     if not critical_rules_active():
         return ""
     return CRITICAL_RULES_PATH.read_text(encoding="utf-8", errors="replace")[:max_chars]
+
+
+def audit_conformity_machine_note() -> str:
+    """
+    CRITICAL_RULES §12 — remind the planner that output must conform to the audited Our Friends corpus.
+    Does not load the full JSON (large); uses post_count from the file header when present.
+    """
+    p = OUR_FRIENDS_AUDIT_JSON
+    if not p.is_file():
+        return (
+            "MACHINE_AUDIT_CONFORMITY: data/our_friends_audit.json is not present in this checkout. "
+            "Do not invent novel HTML/layout patterns; use only structures implied by "
+            "cultural_daily_sponsored_rules.md + existing pipeline tail contracts. If unsure, preserve "
+            "the Google Doc markup and flag for manual review."
+        )
+    try:
+        head = p.read_text(encoding="utf-8", errors="replace")[:24_000]
+        m = re.search(r'"post_count"\s*:\s*(\d+)', head)
+        n = m.group(1) if m else "3208"
+    except OSError:
+        n = "3208"
+    return (
+        f"MACHINE_AUDIT_CONFORMITY: Canonical audited corpus is {p.as_posix()} "
+        f"(Cultural Daily Our Friends, post_count={n}). "
+        "CRITICAL_RULES §12: every formatting pattern, HTML structure, and content element you emit "
+        "must be something that could appear in that dataset — do not introduce new constructs. "
+        "When uncertain, assume the Doc's existing tags are the source of truth and only apply "
+        "minimal fixes already used in audited posts (e.g. paid link wrapper shape from rules)."
+    )
 
 
 def extract_h1_from_gdoc_html(ghtml: str) -> str:
@@ -1321,6 +1370,8 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     machine_h1 = extract_h1_from_gdoc_html(ghtml).strip()
     client_src = first_client_image_src_from_gdoc(ghtml)
     manual_flags: List[str] = []
+    if cr and site["key"] == "cd" and not OUR_FRIENDS_AUDIT_JSON.is_file():
+        manual_flags.append("our_friends_audit_json_missing_local")
     if cr and site["key"] == "cd" and not machine_h1:
         raise RuntimeError(
             "CRITICAL_RULES.md is active but no H1 could be extracted from the Google Doc "
