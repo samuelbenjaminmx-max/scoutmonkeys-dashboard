@@ -2877,7 +2877,13 @@ def wp_upload_image(
         timeout=60,
     )
     r2.raise_for_status()
-    return r2.json()
+    result = r2.json()
+    # Ensure id and source_url are always present (defensive: some WP hosts omit them on PATCH)
+    if not result.get("id"):
+        result["id"] = mid
+    if not result.get("source_url"):
+        result["source_url"] = media.get("source_url", "")
+    return result
 
 
 def cd_delete_wp_media_attachment(site: dict, media_id: int) -> None:
@@ -3166,6 +3172,24 @@ def cd_reupload_inline_body_images(
             print(f"[warn] inline image WordPress upload failed ({fn}): {e}")
             continue
         nu = (m.get("source_url") or "").strip()
+        # Verify the uploaded URL is reachable; retry once if 404 (WP filename conflict can cause this)
+        if nu:
+            try:
+                _hd = requests.head(nu, timeout=15, allow_redirects=True)
+                if _hd.status_code == 404:
+                    print(f"[warn] inline image URL returned 404 after upload ({nu}) — deleting and retrying once")
+                    _mid_bad = m.get("id")
+                    if _mid_bad:
+                        cd_delete_wp_media_attachment(site, int(_mid_bad))
+                    m = wp_upload_jpeg(site, pil, fn, title_m, alt_f, cap_for_wp)
+                    nu = (m.get("source_url") or "").strip()
+                    if nu:
+                        _hd2 = requests.head(nu, timeout=15, allow_redirects=True)
+                        if _hd2.status_code == 404:
+                            print(f"[warn] inline image still 404 after retry ({nu}) — skipping body insertion")
+                            nu = ""
+            except Exception as _ve:
+                print(f"[warn] inline image URL verify error ({nu}): {_ve}")
         if nu:
             changed = True
             img["src"] = nu
@@ -5100,6 +5124,20 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     post_id = int(post["id"])
     edit_url = f"{site['wp_url']}/wp-admin/post.php?post={post_id}&action=edit"
     print(f"[8] Draft id={post_id} url={edit_url}")
+
+    # Defensive: if WP did not apply featured_media during creation, force-set it now
+    if hero_id and int(post.get("featured_media") or 0) != hero_id:
+        _wp_u, _auth_u = wp_auth(site)
+        _rp = requests.post(
+            f"{_wp_u}/wp-json/wp/v2/posts/{post_id}",
+            auth=_auth_u,
+            json={"featured_media": hero_id},
+            timeout=60,
+        )
+        if _rp.ok:
+            print(f"[8b] featured_media was missing — force-patched to {hero_id}")
+        else:
+            print(f"[warn] featured_media force-patch failed: {_rp.status_code} {_rp.text[:120]}")
 
     print(f"[9] Updating AIOSEO + cd-seo…")
     push_aioseo_and_cdseo(
