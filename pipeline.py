@@ -167,6 +167,29 @@ def _meta_has_boilerplate(text: str) -> bool:
     return any(p in low for p in _META_FORBIDDEN_PHRASES)
 
 
+def _strip_ellipsis(text: str) -> str:
+    """Remove trailing '...' or '…' (and surrounding whitespace/punctuation)."""
+    return re.sub(r"[\s.…]+$", "", (text or "").rstrip()).rstrip(" ,;")
+
+
+def _clip_at_sentence_boundary(text: str, max_len: int) -> str:
+    """
+    Clip *text* to at most *max_len* chars, ending on a sentence boundary when
+    possible. Never appends '...' — always returns clean, complete prose.
+    """
+    if len(text) <= max_len:
+        return text
+    chunk = text[:max_len]
+    # Prefer ending after a sentence-terminal punctuation mark
+    for sep in (". ", "! ", "? "):
+        pos = chunk.rfind(sep)
+        if pos >= max_len // 2:
+            return chunk[: pos + 1].rstrip()
+    # Fall back to the last word boundary
+    sp = chunk.rfind(" ")
+    return chunk[:sp].rstrip() if sp >= max_len // 2 else chunk.rstrip()
+
+
 def donation_html_for(site: dict) -> str:
     if site["key"] == "cd":
         return DONATION_HTML_CD
@@ -2186,51 +2209,60 @@ def cd_format_body_inline_images(html: str, *, post_title: str = "", site: dict)
 
 def build_cd_aioseo_seo_title(full_h1: str, planner_hint: str) -> str:
     """
-    AIOSEO title: word-safe clip from H1 to 60 chars; optional `` | Cultural Daily`` suffix when it fits.
-    Always built from the H1 — planner hint is ignored to prevent mid-word truncation.
+    AIOSEO title ≤60 chars. Asks Claude to rewrite the H1 into a complete,
+    meaningful title that never cuts off mid-thought. Falls back to word-safe
+    clip if Claude is unavailable or returns an out-of-range result.
     """
     lim = 60
     t = unicodedata.normalize("NFKC", (full_h1 or "").strip())
     if len(t) <= lim:
-        base = t
-    else:
-        chunk = t[:lim]
-        if chunk[-1].isspace():
-            base = chunk.strip()
-        else:
-            sp = chunk.rfind(" ")
-            base = chunk[:sp].rstrip() if sp >= 12 else re.sub(r"\W+$", "", chunk).strip()
-        if not base:
-            base = t[: lim - 1].rstrip() + "…"
+        return t
+    try:
+        raw = _anthropic_messages(
+            "Rewrite this article title to be 60 characters or under. "
+            "It must be a complete, meaningful phrase — never cut off mid-thought. "
+            "Return only the rewritten title, nothing else.",
+            t,
+            temperature=0.2,
+        )
+        candidate = re.sub(r"\s+", " ", raw.strip()).strip("\"'")
+        if candidate and 10 <= len(candidate) <= lim:
+            suf = CD_SEO_TITLE_SUFFIX
+            if "cultural daily" not in candidate.lower() and len(candidate) + len(suf) <= lim:
+                candidate = (candidate + suf).strip()
+            return candidate[:lim].strip()
+        print(f"[warn] build_cd_aioseo_seo_title: Claude returned out-of-range title ({len(candidate)} chars) — using word-safe clip")
+    except Exception as exc:
+        print(f"[warn] build_cd_aioseo_seo_title Claude call failed ({exc!r}) — using word-safe clip")
+    # Fallback: word-safe clip from H1
+    chunk = t[:lim]
+    sp = chunk.rfind(" ") if not chunk[-1].isspace() else len(chunk)
+    base = chunk[:sp].rstrip() if sp >= 12 else re.sub(r"\W+$", "", chunk).strip()
+    if not base:
+        base = t[:lim].rstrip()
     suf = CD_SEO_TITLE_SUFFIX
     if "cultural daily" not in base.lower() and len(base) + len(suf) <= lim:
         base = (base + suf).strip()
-    if len(base) > lim:
-        base = base[:lim]
-        sp = base.rfind(" ")
-        if sp >= 10:
-            base = base[:sp].rstrip()
     return base[:lim].strip()
 
 
 def ensure_meta_description_length(meta: str, filler_plain: str) -> str:
     """
-    Clip meta description to META_DESCRIPTION_MAX; pad toward META_DESCRIPTION_MIN using
-    article content only. If the input or result contains forbidden boilerplate phrases,
-    the tainted input is discarded and rebuilt from filler_plain only.
+    Clip meta description to META_DESCRIPTION_MAX chars; pad toward META_DESCRIPTION_MIN
+    using article content only. Never appends '...' — always clips at a sentence or word
+    boundary. Discards any input that contains forbidden boilerplate phrases.
     """
     fill = re.sub(r"\s+", " ", filler_plain or "").strip()
-    m = unicodedata.normalize("NFKC", (meta or "").strip())
-    # Discard the seed if it contains boilerplate — rebuild from article body only.
+    m = unicodedata.normalize("NFKC", _strip_ellipsis((meta or "").strip()))
     if _meta_has_boilerplate(m):
         m = ""
     if len(m) > META_DESCRIPTION_MAX:
-        m = m[: META_DESCRIPTION_MAX - 3].rsplit(" ", 1)[0] + "..."
+        m = _clip_at_sentence_boundary(m, META_DESCRIPTION_MAX)
     if len(m) >= META_DESCRIPTION_MIN:
-        result = m[:META_DESCRIPTION_MAX]
+        result = _strip_ellipsis(m[:META_DESCRIPTION_MAX])
         if not _meta_has_boilerplate(result):
             return result
-        m = ""  # still tainted after clip — fall through to filler
+        m = ""
     if m and fill:
         room = META_DESCRIPTION_MIN - len(m) - 1
         if room > 0:
@@ -2240,13 +2272,11 @@ def ensure_meta_description_length(meta: str, filler_plain: str) -> str:
             if extra:
                 m = (m + " " + extra).strip()
     elif fill:
-        m = fill[:META_DESCRIPTION_MAX]
-        if len(m) > META_DESCRIPTION_MAX:
-            m = m[: META_DESCRIPTION_MAX - 3].rsplit(" ", 1)[0] + "..."
+        m = _clip_at_sentence_boundary(fill, META_DESCRIPTION_MAX)
+    m = _strip_ellipsis(m)
     if _meta_has_boilerplate(m):
-        # Last resort: filler alone is somehow tainted — truncate to whatever is clean.
         m = m[: m.lower().find(next(p for p in _META_FORBIDDEN_PHRASES if p in m.lower()))].rstrip(" .,;")
-    return m[:META_DESCRIPTION_MAX]
+    return _strip_ellipsis(m[:META_DESCRIPTION_MAX])
 
 
 def _generate_meta_from_body(body_plain: str, title: str) -> str:
@@ -2267,7 +2297,7 @@ def _generate_meta_from_body(body_plain: str, title: str) -> str:
     user = f"Article title: {title}\n\nArticle body (excerpt):\n{excerpt}"
     try:
         raw = _anthropic_messages(system, user, temperature=0.3)
-        candidate = re.sub(r"\s+", " ", raw.strip())
+        candidate = _strip_ellipsis(re.sub(r"\s+", " ", raw.strip()))
         if not _meta_has_boilerplate(candidate) and META_DESCRIPTION_MIN <= len(candidate) <= META_DESCRIPTION_MAX:
             return candidate
         # Out of range or tainted — run through normaliser with body as filler
