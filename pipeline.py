@@ -3499,6 +3499,7 @@ def push_aioseo_and_cdseo(
         "postId": pid,
         "post_id": pid,
         "id": pid,
+        "default": False,
         "title": st,
         "description": md,
         "og_title": "",
