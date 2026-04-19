@@ -172,6 +172,28 @@ def _strip_ellipsis(text: str) -> str:
     return re.sub(r"[\s.…]+$", "", (text or "").rstrip()).rstrip(" ,;")
 
 
+_TRAILING_INCOMPLETE_WORDS = frozenset(
+    "and or but the a an with in of to for its their that from by as".split()
+)
+
+
+def _clip_to_complete_sentence(text: str, max_len: int) -> str:
+    """
+    Clip *text* to at most *max_len* chars, ensuring it ends at a complete sentence.
+    Detects dangling conjunctions/prepositions/articles and backs up to the previous
+    sentence boundary. Never adds trailing punctuation — caller is responsible.
+    """
+    chunk = text[:max_len].strip()
+    last_word = re.split(r"[\s,;]+", chunk)[-1].lower().rstrip(".!?") if chunk else ""
+    if last_word in _TRAILING_INCOMPLETE_WORDS:
+        for i in range(len(chunk) - 1, -1, -1):
+            if chunk[i] in ".!?":
+                return chunk[: i + 1].strip()
+        pos = chunk.rfind(",")
+        return (chunk[:pos].strip() + ".") if pos > 20 else chunk.rstrip(",;: ")
+    return chunk
+
+
 def _clip_at_sentence_boundary(text: str, max_len: int) -> str:
     """
     Clip *text* to at most *max_len* chars, ending on a sentence boundary when
@@ -2228,12 +2250,17 @@ def build_cd_aioseo_seo_title(full_h1: str, planner_hint: str) -> str:
             temperature=0.2,
         )
         candidate = re.sub(r"\s+", " ", raw.strip()).strip("\"'")
+        # Trim word-by-word if Claude went marginally over the limit
+        words = candidate.split()
+        while words and len(" ".join(words)) > lim:
+            words.pop()
+        candidate = " ".join(words)
         if candidate and 10 <= len(candidate) <= lim:
             suf = CD_SEO_TITLE_SUFFIX
             if "cultural daily" not in candidate.lower() and len(candidate) + len(suf) <= lim:
                 candidate = (candidate + suf).strip()
             return candidate[:lim].strip()
-        print(f"[warn] build_cd_aioseo_seo_title: Claude returned out-of-range title ({len(candidate)} chars) — using word-safe clip")
+        print(f"[warn] build_cd_aioseo_seo_title: Claude returned unusable title ({len(candidate)} chars) — using word-safe clip")
     except Exception as exc:
         print(f"[warn] build_cd_aioseo_seo_title Claude call failed ({exc!r}) — using word-safe clip")
     # Fallback: word-safe clip from H1
@@ -2290,19 +2317,21 @@ def _generate_meta_from_body(body_plain: str, title: str) -> str:
     if not excerpt:
         return ensure_meta_description_length("", "")
     system = (
-        "You write concise SEO meta descriptions. "
-        "Output exactly one plain-text sentence or two short sentences, "
-        f"between {META_DESCRIPTION_MIN} and {META_DESCRIPTION_MAX} characters inclusive. "
+        "Write one or two complete SEO meta description sentences about this article. "
+        f"Total length must be between {META_DESCRIPTION_MIN} and {META_DESCRIPTION_MAX} characters. "
+        "Every sentence must be grammatically complete. "
+        "The final character must be a period. "
+        "Never end with a conjunction, preposition, or article (e.g. 'and', 'or', 'the', 'in'). "
         "No markdown. No quotes. No site names. No promotional language. "
-        "Describe what the article is about using only the provided content."
+        "Use only information from the article content provided."
     )
     user = f"Article title: {title}\n\nArticle body (excerpt):\n{excerpt}"
     try:
         raw = _anthropic_messages(system, user, temperature=0.3)
         candidate = _strip_ellipsis(re.sub(r"\s+", " ", raw.strip()))
-        # Ensure ends with exactly one period
-        if candidate and not candidate.endswith("."):
-            candidate = candidate.rstrip("!?") + "."
+        candidate = _clip_to_complete_sentence(candidate, META_DESCRIPTION_MAX)
+        if candidate and not candidate.endswith((".", "!", "?")):
+            candidate = candidate.rstrip(",;: ") + "."
         if not _meta_has_boilerplate(candidate) and META_DESCRIPTION_MIN <= len(candidate) <= META_DESCRIPTION_MAX:
             return candidate
         # Out of range or tainted — run through normaliser with body as filler
