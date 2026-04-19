@@ -3482,6 +3482,21 @@ def create_wp_draft(
     return post
 
 
+def _aioseo_get_current(wp: str, auth: tuple, pid: int) -> dict:
+    """Return the currentPost dict from AIOSEO GET, or {} on failure."""
+    try:
+        g = requests.get(
+            f"{wp}/wp-json/aioseo/v1/post?postId={pid}",
+            auth=auth,
+            timeout=30,
+        )
+        if g.ok:
+            return (g.json().get("data") or {}).get("currentPost") or {}
+    except Exception as exc:
+        print(f"[warn] AIOSEO GET failed ({exc!r})")
+    return {}
+
+
 def push_aioseo_and_cdseo(
     site: dict,
     post_id: int,
@@ -3490,97 +3505,118 @@ def push_aioseo_and_cdseo(
     *,
     seo_title_max: Optional[int] = None,
 ) -> None:
+    """
+    Read-merge-write: GET current AIOSEO state, merge only the explicitly-changed
+    fields on top, then POST the complete merged payload.  This ensures that fields
+    we are NOT changing (focus keyword, keyphrases, cornerstone, schema, OG image
+    when not re-uploading, etc.) are never wiped or reset to AIOSEO defaults.
+
+    AIOSEO's POST endpoint is a full-replace — any field omitted from the body
+    reverts to the site-wide default.  The GET-then-merge approach is the only
+    safe way to do a partial update.
+    """
     wp, auth = wp_auth(site)
     st_clip = int(seo_title_max) if seo_title_max is not None else int(site["seo_title_max"])
+    pid = int(post_id)
+
+    # --- 1. Read current AIOSEO state (base for all fields we are not changing)
+    current = _aioseo_get_current(wp, auth, pid)
+
+    # Fields AIOSEO reads back from different locations in the GET response:
+    #   cp["title"]                        → stored custom SEO title
+    #   cp["tags"]["description"]          → stored meta description
+    #   cp["og_image_custom_url"]          → stored OG image URL
+    #   cp["og_image_type"]                → "custom_image" / "default" / etc.
+    #   cp["keyphrases"]                   → dict with focus + additional
+    cur_title   = current.get("title") or ""
+    cur_desc    = (current.get("tags") or {}).get("description") or ""
+    cur_og_url  = current.get("og_image_custom_url") or ""
+    cur_og_type = current.get("og_image_type") or "default"
+    cur_kp_raw  = current.get("keyphrases") or {}
+    try:
+        cur_kp: dict = json.loads(cur_kp_raw) if isinstance(cur_kp_raw, str) else dict(cur_kp_raw)
+    except Exception:
+        cur_kp = {}
+
+    # --- 2. Apply the requested changes on top of the current values ---------
     st = (seo.get("seo_title") or "").strip()
     md = (seo.get("meta_description") or "").strip()
-    pid = int(post_id)
-    body = {
-        "postId": pid,
-        "post_id": pid,
+    fk = (seo.get("focus_keyword") or "").strip()
+
+    final_title  = st[:st_clip] if st else cur_title
+    final_desc   = md[:160]     if md else cur_desc
+    final_og_url = og_custom_url if og_custom_url else cur_og_url
+    final_og_type = "custom_image" if final_og_url else cur_og_type
+
+    # Keyphrases: overwrite focus keyphrase only when explicitly provided;
+    # always preserve additional keyphrases.
+    merged_kp = dict(cur_kp)
+    if fk:
+        merged_kp.setdefault("focus", {})
+        merged_kp["focus"]["keyphrase"] = fk
+    merged_kp_json = json.dumps(merged_kp, ensure_ascii=False)
+
+    # --- 3. Build the complete POST body (never omit writable fields) --------
+    body: dict = {
         "id": pid,
         "default": False,
-        "title": st,
-        "description": md,
+        "title": final_title,
+        "description": final_desc,
+        "og_image_type": final_og_type,
+        "og_image_custom_url": final_og_url,
+        "og_image_custom": bool(final_og_url),
         "og_title": "",
         "og_description": "",
-        "twitter_title": st,
-        "twitter_description": md,
-        "og_image_type": "custom_image",
-        "og_image_custom_url": og_custom_url,
-        "og_image_custom": True,
+        "twitter_title": final_title,
+        "twitter_description": final_desc,
         "twitter_use_og": True,
-        "twitter_image_custom_url": og_custom_url,
-        "keyphrases": json.dumps(
-            {"focus": {"keyphrase": seo.get("focus_keyword") or ""}},
-            ensure_ascii=False,
-        ),
+        "twitter_image_custom_url": final_og_url,
+        "keyphrases": merged_kp_json,
     }
-    body_no_dup_ids = {k: v for k, v in body.items() if k not in ("postId", "post_id")}
-    cd_payload = {
+
+    # --- 4. cd-seo payload — always send the merged final values -------------
+    cd_payload: dict = {
         "post_id": pid,
-        "seo_title": (seo.get("seo_title") or "")[:st_clip],
-        "meta_description": (seo.get("meta_description") or "")[:160],
-        "focus_keyphrase": (seo.get("focus_keyword") or "")[:191],
-        "og_image_url": og_custom_url,
+        "seo_title": final_title,
+        "meta_description": final_desc,
+        "focus_keyphrase": (merged_kp.get("focus") or {}).get("keyphrase", "")[:191],
+        "og_image_url": final_og_url,
     }
+
+    # --- 5. Determine the success condition for the retry loop ---------------
+    need_og_verify = bool(final_og_url)
 
     def _og_from_aioseo_get() -> str:
-        g = requests.get(
-            f"{wp}/wp-json/aioseo/v1/post?postId={pid}",
-            auth=auth,
-            timeout=30,
-        )
-        if not g.ok:
-            return ""
-        try:
-            cur = (g.json().get("data") or {}).get("currentPost") or {}
-            return (cur.get("og_image_custom_url") or "").strip()
-        except Exception:
-            return ""
+        cur = _aioseo_get_current(wp, auth, pid)
+        return (cur.get("og_image_custom_url") or "").strip()
 
+    # --- 6. POST with retry --------------------------------------------------
     aio_warn = ""
     cd_warn = ""
     for attempt in range(3):
         aio_ok = False
         # postId must be in the JSON body only — adding it as a URL query param causes
         # WordPress REST to misparse the combined request and return "Post ID is missing."
-        tries: List[Tuple[str, dict]] = [
-            (f"{wp}/wp-json/aioseo/v1/post", body),
-            (f"{wp}/wp-json/aioseo/v1/post", body_no_dup_ids),
-        ]
-        for url, jb in tries:
-            r = requests.post(url, auth=auth, json=jb, timeout=90)
-            if r.ok:
-                aio_ok = True
-                break
+        r = requests.post(f"{wp}/wp-json/aioseo/v1/post", auth=auth, json=body, timeout=90)
+        if r.ok:
+            aio_ok = True
+        else:
             aio_warn = f"{r.status_code}: {r.text[:320]}"
-        if not aio_ok:
-            r2 = requests.post(
-                f"{wp}/wp-json/aioseo/v1/post/{pid}",
-                auth=auth,
-                json=body,
-                timeout=90,
-            )
+            r2 = requests.post(f"{wp}/wp-json/aioseo/v1/post/{pid}", auth=auth, json=body, timeout=90)
             if r2.ok:
                 aio_ok = True
             else:
                 aio_warn = aio_warn + f" | path {r2.status_code}: {r2.text[:220]}"
 
         time.sleep(0.35)
-        r_cd = requests.post(
-            f"{wp}/wp-json/cd-seo/v1/update",
-            auth=auth,
-            json=cd_payload,
-            timeout=90,
-        )
+        r_cd = requests.post(f"{wp}/wp-json/cd-seo/v1/update", auth=auth, json=cd_payload, timeout=90)
         if r_cd.ok:
             cd_warn = ""
         else:
             cd_warn = f"{r_cd.status_code}: {r_cd.text[:320]}"
 
-        og_now = _og_from_aioseo_get()
-        if aio_ok and r_cd.ok and og_now:
+        og_ok = (not need_og_verify) or bool(_og_from_aioseo_get())
+        if aio_ok and r_cd.ok and og_ok:
             return
         if attempt < 2:
             time.sleep(0.55 + float(attempt) * 0.35)
@@ -3589,7 +3625,7 @@ def push_aioseo_and_cdseo(
         print(f"[warn] aioseo/v1/post persist uncertain after retries: {aio_warn}")
     if cd_warn:
         print(f"[warn] cd-seo/v1/update {cd_warn}")
-    if not _og_from_aioseo_get():
+    if need_og_verify and not _og_from_aioseo_get():
         print(
             f"[warn] AIOSEO GET still missing og_image_custom_url for post {pid} — "
             "check plugin REST / capability; cd-seo may still have mirrored DB fields."
