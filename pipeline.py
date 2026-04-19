@@ -3771,11 +3771,31 @@ def _cd_wrap_anchor_contents_in_strong(soup: BeautifulSoup, a) -> bool:
     return True
 
 
+def unwrap_google_redirect_hrefs_in_body(html: str) -> str:
+    """
+    Google Doc exports wrap outbound links as ``https://www.google.com/url?q=<actual-url>&...``.
+    This strips the redirect wrapper from every ``<a href>`` in the body, leaving the real URL.
+    Applied universally (all sites) in both run() and remediate() before link-shape enforcement.
+    """
+    if not (html or "").strip():
+        return html
+    soup = BeautifulSoup(html, "html.parser")
+    changed = False
+    for a in soup.find_all("a", href=True):
+        raw = (a.get("href") or "").strip()
+        clean = doc_parser.normalize_href(raw)
+        if clean and clean != raw:
+            a["href"] = clean
+            changed = True
+            print(f"[link-unwrap] {raw[:80]} → {clean[:80]}")
+    return str(soup) if changed else html
+
+
 def canonicalize_body_http_links_cd(site: dict, body_html: str) -> str:
     """
     CD sponsored contract: every ``http(s)`` body anchor is dofollow, ``target=_blank``,
     and wraps anchor text in ``<strong>`` (same shape as ``verify_sponsored_body_links``).
-    Does not change hrefs or anchor wording.
+    Also unwraps any residual Google redirect hrefs (google.com/url?q=).
     """
     if site.get("key") != "cd" or not (body_html or "").strip():
         return body_html
@@ -3783,6 +3803,13 @@ def canonicalize_body_http_links_cd(site: dict, body_html: str) -> str:
     changed = False
     for a in soup.find_all("a"):
         href = (a.get("href") or "").strip()
+        # Unwrap Google redirect URLs before any other processing
+        clean = doc_parser.normalize_href(href)
+        if clean and clean != href:
+            a["href"] = clean
+            href = clean
+            changed = True
+            print(f"[link-unwrap] {(a.get('href') or '')[:80]} → {clean[:80]}")
         if not re.match(r"https?://", href, re.I):
             continue
         rel = a.get("rel")
@@ -4677,6 +4704,7 @@ def remediate_latest_cd_draft() -> dict:
         pre_body = raw_content
         tail_suffix = ""
     pre_body = normalize_cd_body_vertical_spacing(pre_body)
+    pre_body = unwrap_google_redirect_hrefs_in_body(pre_body)
     pre_body = cd_resolve_gdoc_footnote_images(pre_body, hero_src=hero_url, site=site)
     pre_body = cd_strip_residual_footnote_url_paragraphs(pre_body)
     if not used_pex:
