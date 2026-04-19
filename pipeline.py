@@ -5025,10 +5025,6 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
             hero_src_to_skip=(client_src or "").strip(),
             credit_by_src=credit_by_src,
         )
-        if (client_src or "").strip():
-            body = cd_strip_body_images_visually_matching_client_hero(
-                body, (client_src or "").strip(), site=site
-            )
         body = cd_promote_gdoc_heading_paragraphs(body)
         body = cd_format_body_inline_images(body, post_title=title, site=site)
         body = cd_insert_spacers_between_adjacent_figures(body)
@@ -5198,8 +5194,16 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     print(f"[img-url] SOCIAL src: {social_url}")
 
     if site["key"] == "cd" and (hero_url or "").strip():
-        body = remove_client_hero_image_from_body_html(body, hero_url)
-        print(f"[2c] Post-upload hero strip: removed any body <img> with src matching hero WP URL ({hero_url}).")
+        _hu = hero_url.strip()
+        _bsoup_hu = BeautifulSoup(body, "html.parser")
+        _hu_removed = 0
+        for _img_hu in list(_bsoup_hu.find_all("img")):
+            if (_img_hu.get("src") or "").strip() == _hu:
+                _cd_remove_img_and_collapsing_empties(_img_hu)
+                _hu_removed += 1
+        if _hu_removed:
+            body = str(_bsoup_hu)
+        print(f"[2c] Post-upload hero strip (WP URL={_hu!r}): removed {_hu_removed} body <img> with exact src match.")
 
     cite_html = (cite or "").strip()
     if cite_html:
