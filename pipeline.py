@@ -155,6 +155,16 @@ DONATION_HTML_CD = (
 CD_SEO_TITLE_SUFFIX = " | Cultural Daily"
 META_DESCRIPTION_MIN = 120
 META_DESCRIPTION_MAX = 160
+# Phrases that must never appear in a published meta description.
+_META_FORBIDDEN_PHRASES = (
+    "sponsored arts and culture coverage",
+    "cultural daily",
+)
+
+
+def _meta_has_boilerplate(text: str) -> bool:
+    low = (text or "").lower()
+    return any(p in low for p in _META_FORBIDDEN_PHRASES)
 
 
 def donation_html_for(site: dict) -> str:
@@ -2206,14 +2216,21 @@ def build_cd_aioseo_seo_title(full_h1: str, planner_hint: str) -> str:
 def ensure_meta_description_length(meta: str, filler_plain: str) -> str:
     """
     Clip meta description to META_DESCRIPTION_MAX; pad toward META_DESCRIPTION_MIN using
-    article content only. Never appends boilerplate strings.
+    article content only. If the input or result contains forbidden boilerplate phrases,
+    the tainted input is discarded and rebuilt from filler_plain only.
     """
+    fill = re.sub(r"\s+", " ", filler_plain or "").strip()
     m = unicodedata.normalize("NFKC", (meta or "").strip())
+    # Discard the seed if it contains boilerplate — rebuild from article body only.
+    if _meta_has_boilerplate(m):
+        m = ""
     if len(m) > META_DESCRIPTION_MAX:
         m = m[: META_DESCRIPTION_MAX - 3].rsplit(" ", 1)[0] + "..."
     if len(m) >= META_DESCRIPTION_MIN:
-        return m[:META_DESCRIPTION_MAX]
-    fill = re.sub(r"\s+", " ", filler_plain or "").strip()
+        result = m[:META_DESCRIPTION_MAX]
+        if not _meta_has_boilerplate(result):
+            return result
+        m = ""  # still tainted after clip — fall through to filler
     if m and fill:
         room = META_DESCRIPTION_MIN - len(m) - 1
         if room > 0:
@@ -2226,7 +2243,38 @@ def ensure_meta_description_length(meta: str, filler_plain: str) -> str:
         m = fill[:META_DESCRIPTION_MAX]
         if len(m) > META_DESCRIPTION_MAX:
             m = m[: META_DESCRIPTION_MAX - 3].rsplit(" ", 1)[0] + "..."
+    if _meta_has_boilerplate(m):
+        # Last resort: filler alone is somehow tainted — truncate to whatever is clean.
+        m = m[: m.lower().find(next(p for p in _META_FORBIDDEN_PHRASES if p in m.lower()))].rstrip(" .,;")
     return m[:META_DESCRIPTION_MAX]
+
+
+def _generate_meta_from_body(body_plain: str, title: str) -> str:
+    """
+    Ask Claude to write a fresh 120–160 char meta description from the article body.
+    Falls back to body-derived text if the Claude call fails or returns boilerplate.
+    """
+    excerpt = re.sub(r"\s+", " ", (body_plain or "").strip())[:6000]
+    if not excerpt:
+        return ensure_meta_description_length("", "")
+    system = (
+        "You write concise SEO meta descriptions. "
+        "Output exactly one plain-text sentence or two short sentences, "
+        f"between {META_DESCRIPTION_MIN} and {META_DESCRIPTION_MAX} characters inclusive. "
+        "No markdown. No quotes. No site names. No promotional language. "
+        "Describe what the article is about using only the provided content."
+    )
+    user = f"Article title: {title}\n\nArticle body (excerpt):\n{excerpt}"
+    try:
+        raw = _anthropic_messages(system, user, temperature=0.3)
+        candidate = re.sub(r"\s+", " ", raw.strip())
+        if not _meta_has_boilerplate(candidate) and META_DESCRIPTION_MIN <= len(candidate) <= META_DESCRIPTION_MAX:
+            return candidate
+        # Out of range or tainted — run through normaliser with body as filler
+        return ensure_meta_description_length(candidate if not _meta_has_boilerplate(candidate) else "", excerpt)
+    except Exception as exc:
+        print(f"[warn] _generate_meta_from_body Claude call failed ({exc!r}) — deriving from body text")
+        return ensure_meta_description_length("", excerpt)
 
 
 def hero_social_alt_for_cd(
@@ -4724,8 +4772,8 @@ def remediate_latest_cd_draft() -> dict:
         topic_slug=slug,
     )
     raw_plain = BeautifulSoup(raw_content, "html.parser").get_text(" ", strip=True)
-    meta_raw = (seo_r.get("aioseo_db") or {}).get("description") or ""
-    meta = ensure_meta_description_length(meta_raw or raw_title, raw_plain)
+    print("[remediate] Regenerating meta description from article body via Claude…")
+    meta = _generate_meta_from_body(raw_plain, raw_title)
     seo = {
         "focus_keyword": focus,
         "seo_title": build_cd_aioseo_seo_title(raw_title, ""),
