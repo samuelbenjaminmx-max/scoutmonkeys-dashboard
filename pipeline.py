@@ -2176,25 +2176,22 @@ def cd_format_body_inline_images(html: str, *, post_title: str = "", site: dict)
 
 def build_cd_aioseo_seo_title(full_h1: str, planner_hint: str) -> str:
     """
-    AIOSEO title: max 60 chars, never truncate mid-word; optional `` | Cultural Daily`` when it still fits.
+    AIOSEO title: word-safe clip from H1 to 60 chars; optional `` | Cultural Daily`` suffix when it fits.
+    Always built from the H1 — planner hint is ignored to prevent mid-word truncation.
     """
     lim = 60
-    hint = (planner_hint or "").strip()
-    if hint and len(hint) <= lim:
-        base = hint
+    t = unicodedata.normalize("NFKC", (full_h1 or "").strip())
+    if len(t) <= lim:
+        base = t
     else:
-        t = unicodedata.normalize("NFKC", (full_h1 or "").strip())
-        if len(t) <= lim:
-            base = t
+        chunk = t[:lim]
+        if chunk[-1].isspace():
+            base = chunk.strip()
         else:
-            chunk = t[:lim]
-            if chunk[-1].isspace():
-                base = chunk.strip()
-            else:
-                sp = chunk.rfind(" ")
-                base = chunk[:sp].rstrip() if sp >= 12 else re.sub(r"\W+$", "", chunk).strip()
-            if not base:
-                base = t[: lim - 1].rstrip() + "…"
+            sp = chunk.rfind(" ")
+            base = chunk[:sp].rstrip() if sp >= 12 else re.sub(r"\W+$", "", chunk).strip()
+        if not base:
+            base = t[: lim - 1].rstrip() + "…"
     suf = CD_SEO_TITLE_SUFFIX
     if "cultural daily" not in base.lower() and len(base) + len(suf) <= lim:
         base = (base + suf).strip()
@@ -2207,7 +2204,10 @@ def build_cd_aioseo_seo_title(full_h1: str, planner_hint: str) -> str:
 
 
 def ensure_meta_description_length(meta: str, filler_plain: str) -> str:
-    """Meta description between META_DESCRIPTION_MIN and META_DESCRIPTION_MAX characters."""
+    """
+    Clip meta description to META_DESCRIPTION_MAX; pad toward META_DESCRIPTION_MIN using
+    article content only. Never appends boilerplate strings.
+    """
     m = unicodedata.normalize("NFKC", (meta or "").strip())
     if len(m) > META_DESCRIPTION_MAX:
         m = m[: META_DESCRIPTION_MAX - 3].rsplit(" ", 1)[0] + "..."
@@ -2226,12 +2226,6 @@ def ensure_meta_description_length(meta: str, filler_plain: str) -> str:
         m = fill[:META_DESCRIPTION_MAX]
         if len(m) > META_DESCRIPTION_MAX:
             m = m[: META_DESCRIPTION_MAX - 3].rsplit(" ", 1)[0] + "..."
-    pad = " Sponsored arts and culture coverage on Cultural Daily."
-    while len(m) < META_DESCRIPTION_MIN:
-        m = (m + pad).strip()
-        if len(m) > META_DESCRIPTION_MAX:
-            m = m[:META_DESCRIPTION_MAX]
-            break
     return m[:META_DESCRIPTION_MAX]
 
 
