@@ -4635,55 +4635,33 @@ def remediate_latest_cd_draft() -> dict:
         if cap and not cap.startswith("Photo:"):
             cap = f"Photo: {cap}" if "pexels" in cap.lower() else ""
         prefix = site["prefix"]
-        use_png_social = cd_social_upload_should_use_png(site)
         if sid:
             cd_delete_wp_media_attachment(site, int(sid))
         social_hdr = {"X-CD-Pipeline-Social": "1"}
-        attempts = [True, False] if use_png_social else [False]
-        sm: dict = {}
-        for att_i, try_png in enumerate(attempts):
-            if att_i > 0:
-                print(
-                    "[warn] Remediate: social PNG not kept at 1920×1400 — deleting attachment, retry JPEG."
-                )
-                cd_delete_wp_media_attachment(site, int(sid))
-            social_fn = f"{prefix}-{slug}-social.png" if try_png else f"{prefix}-{slug}-social.jpg"
-            sm = wp_upload_image(
-                site,
-                social_img,
-                social_fn,
-                f"{prefix}-{slug}-social",
-                alt,
-                cap,
-                image_format="PNG" if try_png else "JPEG",
-                jpeg_quality=96,
-                http_headers=social_hdr,
-            )
-            sid = int(sm["id"])
-            time.sleep(0.6)
-            r_sv = requests.get(
-                f"{wp}/wp-json/wp/v2/media/{sid}?context=edit",
-                auth=auth,
-                timeout=30,
-            )
-            r_sv.raise_for_status()
-            sm = r_sv.json()
-            try:
-                assert_cd_social_attachment_stored_dimensions(
-                    site, sm, context="remediate social reupload"
-                )
-            except RuntimeError:
-                if att_i >= len(attempts) - 1:
-                    assert_cd_social_attachment_stored_dimensions(
-                        site,
-                        sm,
-                        context="remediate social reupload (host downscale override)",
-                        allow_host_downscale=True,
-                    )
-                    actions.append("warn: social attachment still downscaled on host after PNG+JPEG")
-                    break
-                continue
-            break
+        social_fn = f"{prefix}-{slug}-social.jpg"
+        sm = wp_upload_image(
+            site,
+            social_img,
+            social_fn,
+            f"{prefix}-{slug}-social",
+            alt,
+            cap,
+            image_format="JPEG",
+            jpeg_quality=92,
+            http_headers=social_hdr,
+        )
+        sid = int(sm["id"])
+        time.sleep(0.6)
+        r_sv = requests.get(
+            f"{wp}/wp-json/wp/v2/media/{sid}?context=edit",
+            auth=auth,
+            timeout=30,
+        )
+        r_sv.raise_for_status()
+        sm = r_sv.json()
+        assert_cd_social_attachment_stored_dimensions(
+            site, sm, context="remediate social reupload", allow_host_downscale=True
+        )
         social_url = (sm.get("source_url") or "").strip()
         actions.append(f"reuploaded social media id={sid} {site['social_w']}×{site['social_h']}")
     else:
@@ -4695,7 +4673,7 @@ def remediate_latest_cd_draft() -> dict:
         _rsoc2.raise_for_status()
         soc = _rsoc2.json()
         assert_cd_social_attachment_stored_dimensions(
-            site, soc, context="remediate existing social attachment"
+            site, soc, context="remediate existing social attachment", allow_host_downscale=True
         )
         social_url = (soc.get("source_url") or "").strip()
 
@@ -5129,7 +5107,7 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         alt = f"{title} — banner image highlighting the story's subject matter."
 
     hero_fn = f"{prefix}-{slug}-hero.jpg"
-    use_png_social = cd_social_upload_should_use_png(site)
+    social_fn = f"{prefix}-{slug}-social.jpg"
 
     print(f"[4] Uploading hero {hero_fn}…")
     hero_media = wp_upload_jpeg(
@@ -5141,55 +5119,37 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
 
     wp_u, auth_u = wp_auth(site)
     social_hdr = {"X-CD-Pipeline-Social": "1"}
-    # PNG first (default); if the host still stores ~1481px, delete and retry JPEG once.
-    social_attempts = [True, False] if use_png_social else [False]
-    social_media: dict = {}
-    social_id = 0
-    for att_i, try_png in enumerate(social_attempts):
-        if att_i > 0:
-            print(
-                "[warn] Social PNG was not kept at 1920×1400 on the server — "
-                "deleting that attachment and retrying as JPEG."
-            )
-            cd_delete_wp_media_attachment(site, social_id)
-        social_fn = f"{prefix}-{slug}-social.png" if try_png else f"{prefix}-{slug}-social.jpg"
-        print(f"[5] Uploading social {social_fn}…")
-        social_media = wp_upload_image(
-            site,
-            social_img,
-            social_fn,
-            f"{prefix}-{slug}-social",
-            alt,
-            cap,
-            image_format="PNG" if try_png else "JPEG",
-            jpeg_quality=96,
-            http_headers=social_hdr,
-        )
-        social_id = int(social_media["id"])
-        time.sleep(0.6)
-        r_sv = requests.get(
-            f"{wp_u}/wp-json/wp/v2/media/{social_id}?context=edit",
-            auth=auth_u,
-            timeout=30,
-        )
-        r_sv.raise_for_status()
-        social_media = r_sv.json()
-        try:
-            assert_cd_social_attachment_stored_dimensions(
-                site, social_media, context="pipeline social upload"
-            )
-        except RuntimeError:
-            if att_i >= len(social_attempts) - 1:
-                assert_cd_social_attachment_stored_dimensions(
-                    site,
-                    social_media,
-                    context="pipeline social upload (host downscale override)",
-                    allow_host_downscale=True,
-                )
-                manual_flags.append("social_attachment_host_downscaled:see_console")
-                break
-            continue
-        break
+    print(f"[5] Uploading social {social_fn}…")
+    social_media = wp_upload_image(
+        site,
+        social_img,
+        social_fn,
+        f"{prefix}-{slug}-social",
+        alt,
+        cap,
+        image_format="JPEG",
+        jpeg_quality=92,
+        http_headers=social_hdr,
+    )
+    social_id = int(social_media["id"])
+    time.sleep(0.6)
+    r_sv = requests.get(
+        f"{wp_u}/wp-json/wp/v2/media/{social_id}?context=edit",
+        auth=auth_u,
+        timeout=30,
+    )
+    r_sv.raise_for_status()
+    social_media = r_sv.json()
+    assert_cd_social_attachment_stored_dimensions(
+        site,
+        social_media,
+        context="pipeline social upload",
+        allow_host_downscale=True,
+    )
+    if (int((social_media.get("media_details") or {}).get("width") or 0),
+            int((social_media.get("media_details") or {}).get("height") or 0)) \
+            != (int(site["social_w"]), int(site["social_h"])):
+        manual_flags.append("social_attachment_host_downscaled:see_console")
     social_url = social_media.get("source_url") or ""
     print(f"[img-url] SOCIAL src: {social_url}")
 
