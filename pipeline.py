@@ -3392,13 +3392,14 @@ def push_aioseo_and_cdseo(
     body = {
         "postId": pid,
         "post_id": pid,
+        "id": pid,
         "title": st,
         "description": md,
         "og_title": st,
         "og_description": md,
         "twitter_title": st,
         "twitter_description": md,
-        "og_image_type": "custom",
+        "og_image_type": "custom_image",
         "og_image_custom_url": og_custom_url,
         "og_image_custom": True,
         "twitter_use_og": True,
@@ -3435,14 +3436,14 @@ def push_aioseo_and_cdseo(
     cd_warn = ""
     for attempt in range(3):
         aio_ok = False
-        tries: List[Tuple[str, dict, dict]] = [
-            (f"{wp}/wp-json/aioseo/v1/post", {"postId": pid}, body),
-            (f"{wp}/wp-json/aioseo/v1/post", {"post_id": pid}, body),
-            (f"{wp}/wp-json/aioseo/v1/post", {"postId": pid}, body_no_dup_ids),
-            (f"{wp}/wp-json/aioseo/v1/post", {"id": pid}, body_no_dup_ids),
+        # postId must be in the JSON body only — adding it as a URL query param causes
+        # WordPress REST to misparse the combined request and return "Post ID is missing."
+        tries: List[Tuple[str, dict]] = [
+            (f"{wp}/wp-json/aioseo/v1/post", body),
+            (f"{wp}/wp-json/aioseo/v1/post", body_no_dup_ids),
         ]
-        for url, params, jb in tries:
-            r = requests.post(url, auth=auth, params=params, json=jb, timeout=90)
+        for url, jb in tries:
+            r = requests.post(url, auth=auth, json=jb, timeout=90)
             if r.ok:
                 aio_ok = True
                 break
