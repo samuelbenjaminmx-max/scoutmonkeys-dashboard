@@ -3297,6 +3297,7 @@ def cd_reupload_inline_body_images(
                 print(f"[warn] inline image URL verify error ({nu}): {_ve}")
         if nu:
             changed = True
+            print(f"[img-url] INSERT-{slot} src: {nu} (verified HTTP OK)")
             img["src"] = nu
             img["alt"] = alt_f
             img["title"] = title_m
@@ -5140,6 +5141,7 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     )
     hero_id = int(hero_media["id"])
     hero_url = hero_media.get("source_url") or ""
+    print(f"[img-url] HERO src: {hero_url}")
 
     wp_u, auth_u = wp_auth(site)
     social_hdr = {"X-CD-Pipeline-Social": "1"}
@@ -5193,9 +5195,11 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
             continue
         break
     social_url = social_media.get("source_url") or ""
+    print(f"[img-url] SOCIAL src: {social_url}")
 
-    if site["key"] == "cd" and (client_src or "").strip() and (hero_url or "").strip():
-        body = cd_strip_body_images_visually_matching_client_hero(body, hero_url, site=site)
+    if site["key"] == "cd" and (hero_url or "").strip():
+        body = remove_client_hero_image_from_body_html(body, hero_url)
+        print(f"[2c] Post-upload hero strip: removed any body <img> with src matching hero WP URL ({hero_url}).")
 
     cite_html = (cite or "").strip()
     if cite_html:
@@ -5238,19 +5242,30 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     edit_url = f"{site['wp_url']}/wp-admin/post.php?post={post_id}&action=edit"
     print(f"[8] Draft id={post_id} url={edit_url}")
 
-    # Defensive: if WP did not apply featured_media during creation, force-set it now
-    if hero_id and int(post.get("featured_media") or 0) != hero_id:
-        _wp_u, _auth_u = wp_auth(site)
-        _rp = requests.post(
-            f"{_wp_u}/wp-json/wp/v2/posts/{post_id}",
-            auth=_auth_u,
-            json={"featured_media": hero_id},
-            timeout=60,
-        )
-        if _rp.ok:
-            print(f"[8b] featured_media was missing — force-patched to {hero_id}")
+    # Hard PATCH 3s after creation — ensures _thumbnail_id is committed regardless of creation response timing
+    time.sleep(3)
+    _wp_u, _auth_u = wp_auth(site)
+    _rp = requests.patch(
+        f"{_wp_u}/wp-json/wp/v2/posts/{post_id}",
+        auth=_auth_u,
+        json={"featured_media": hero_id},
+        timeout=60,
+    )
+    if not _rp.ok:
+        print(f"[8b] ⚠ featured_media PATCH failed: {_rp.status_code} {_rp.text[:120]}")
+    _rv = requests.get(
+        f"{_wp_u}/wp-json/wp/v2/posts/{post_id}?context=edit",
+        auth=_auth_u,
+        timeout=30,
+    )
+    if _rv.ok:
+        _fm_now = int((_rv.json().get("featured_media") or 0))
+        if _fm_now == hero_id:
+            print(f"[8b] featured_media confirmed: {hero_id} ✅")
         else:
-            print(f"[warn] featured_media force-patch failed: {_rp.status_code} {_rp.text[:120]}")
+            print(f"[8b] ❌ ERROR: featured_media={_fm_now} after hard PATCH — expected {hero_id}. Check WP permissions / _thumbnail_id postmeta.")
+    else:
+        print(f"[8b] ❌ ERROR: GET verify after PATCH returned {_rv.status_code}")
 
     print(f"[9] Updating AIOSEO + cd-seo…")
     push_aioseo_and_cdseo(
