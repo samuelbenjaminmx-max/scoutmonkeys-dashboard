@@ -2209,9 +2209,11 @@ def cd_format_body_inline_images(html: str, *, post_title: str = "", site: dict)
 
 def build_cd_aioseo_seo_title(full_h1: str, planner_hint: str) -> str:
     """
-    AIOSEO title ≤60 chars. Asks Claude to rewrite the H1 into a complete,
-    meaningful title that never cuts off mid-thought. Falls back to word-safe
-    clip if Claude is unavailable or returns an out-of-range result.
+    AIOSEO title ≤60 chars.
+    - If the H1 is already ≤60 chars, use it exactly as-is.
+    - If longer, ask Claude to shorten it by removing words from the end or
+      dropping filler — faithful to the original wording, not a rewrite.
+      Falls back to word-safe clip if Claude fails or returns out-of-range text.
     """
     lim = 60
     t = unicodedata.normalize("NFKC", (full_h1 or "").strip())
@@ -2219,9 +2221,9 @@ def build_cd_aioseo_seo_title(full_h1: str, planner_hint: str) -> str:
         return t
     try:
         raw = _anthropic_messages(
-            "Rewrite this article title to be 60 characters or under. "
-            "It must be a complete, meaningful phrase — never cut off mid-thought. "
-            "Return only the rewritten title, nothing else.",
+            "Shorten this title to fit within 60 characters. "
+            "Stay as faithful as possible to the original wording — only remove words, "
+            "do not rephrase or rewrite. Return only the shortened title, nothing else.",
             t,
             temperature=0.2,
         )
@@ -2298,6 +2300,9 @@ def _generate_meta_from_body(body_plain: str, title: str) -> str:
     try:
         raw = _anthropic_messages(system, user, temperature=0.3)
         candidate = _strip_ellipsis(re.sub(r"\s+", " ", raw.strip()))
+        # Ensure ends with exactly one period
+        if candidate and not candidate.endswith("."):
+            candidate = candidate.rstrip("!?") + "."
         if not _meta_has_boilerplate(candidate) and META_DESCRIPTION_MIN <= len(candidate) <= META_DESCRIPTION_MAX:
             return candidate
         # Out of range or tainted — run through normaliser with body as filler
