@@ -4731,7 +4731,7 @@ def remediate_latest_cd_draft() -> dict:
     pre2 = format_to_audit_standard(pre2, site=site)
     pre2 = cd_enrich_inline_image_alts_with_vision(pre2, raw_title)
     cd_sync_inline_attachment_alts_from_body(site, pre2)
-    new_content = pre2.rstrip() + (("\n\n" + tail_suffix) if tail_suffix else "")
+    new_content = pre2.rstrip() + (("\n" + tail_suffix) if tail_suffix else "")
     # Always persist processed HTML on remediate: strict string compare misses WP serialization drift and
     # leaves the block editor on old ``P > span > img`` markup while QA passes on REST ``raw``.
     skip_body = (os.environ.get("REMEDIATE_SKIP_BODY_POST") or "").strip().lower() in (
@@ -5367,7 +5367,7 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         tail = "<!--scoutmonkeys-machine-tail-->\n" + cite_html + "\n<hr />\n" + donation_html_for(site)
     else:
         tail = "<!--scoutmonkeys-machine-tail-->\n<hr />\n" + donation_html_for(site)
-    content = body.rstrip() + "\n\n" + tail
+    content = body.rstrip() + "\n" + tail
 
     seo = {
         "focus_keyword": focus,
