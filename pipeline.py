@@ -5471,7 +5471,7 @@ send_whatsapp = send_sms
 # ---------------------------------------------------------------------------
 
 
-def run(gdoc_url: str, site_key: str = "cd") -> dict:
+def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "") -> dict:
     _apply_repo_dotenv_for_cli()
     _refresh_runtime_env_from_os()
     _refresh_sites()
@@ -5723,6 +5723,18 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
                     prov_url = _real_url
                     prov_label = _label
                     print(f"[cite] Image-source → {_real_url!r}, credit={_label!r}")
+
+        # CLI --photographer override: replaces auto-extracted label when stock site blocks scraping
+        if photographer_override and prov_url:
+            _plat = _extract_platform_photographer.__doc__ and ""  # unused; get platform from url
+            from urllib.parse import urlparse as _urlparse2
+            _dom = _urlparse2(prov_url).netloc.lstrip("www.")
+            for _frag, _pn in _STOCK_PLATFORM_NAMES.items():
+                if _frag in _dom:
+                    _dom = _pn
+                    break
+            prov_label = f"{photographer_override} via {_dom}"
+            print(f"[cite] Photographer override: {prov_label!r}")
 
         hero_img, social_img = build_resized_pair_from_pil(site, pil)
         p_name = prov_label
@@ -5977,7 +5989,7 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
 def main(argv: List[str]) -> None:
     if len(argv) < 1:
         print(
-            "Usage: python pipeline.py <google-doc-url> [cd|dcr]\n"
+            "Usage: python pipeline.py <google-doc-url> [cd|dcr] [--photographer \"Name\"]\n"
             "       python pipeline.py remediate-latest cd\n"
             "       python pipeline.py purge-latest-cd-draft",
             file=sys.stderr,
@@ -5996,8 +6008,19 @@ def main(argv: List[str]) -> None:
         print(json.dumps(out, indent=2))
         raise SystemExit(0 if out.get("qa_ok") else 1)
     url = argv[0]
-    site = argv[1] if len(argv) > 1 else "cd"
-    out = run(url, site)
+    remaining = argv[1:]
+    photographer_override: str = ""
+    filtered: List[str] = []
+    i = 0
+    while i < len(remaining):
+        if remaining[i] == "--photographer" and i + 1 < len(remaining):
+            photographer_override = remaining[i + 1].strip()
+            i += 2
+        else:
+            filtered.append(remaining[i])
+            i += 1
+    site = filtered[0] if filtered else "cd"
+    out = run(url, site, photographer_override=photographer_override)
     print(json.dumps(out, indent=2))
 
 
