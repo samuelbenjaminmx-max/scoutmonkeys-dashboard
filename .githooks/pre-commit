@@ -1,0 +1,14 @@
+#!/bin/sh
+# Mandatory pipeline rule tests — blocks commit if any fail.
+# Installed via: git config core.hooksPath .githooks
+echo "▶ Running pipeline rule tests..."
+python3 -m pytest tests/test_pipeline_rules.py -v --tb=short -q 2>&1
+STATUS=$?
+if [ $STATUS -ne 0 ]; then
+    echo ""
+    echo "✗ Pipeline rule tests FAILED — commit blocked."
+    echo "  Fix the failures above, then commit again."
+    exit 1
+fi
+echo "✓ All pipeline rule tests passed."
+exit 0

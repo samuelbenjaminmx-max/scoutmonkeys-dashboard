@@ -2778,7 +2778,7 @@ def cd_title_focus_keyword_candidates(title: str) -> List[str]:
             continue
         push(w)
     for w in words:
-        if len(w) != 2 or not w.isalnum() or w in seen:
+        if len(w) != 2 or not w.isalnum() or w in seen or w in _CD_FOCUS_STOPWORDS:
             continue
         push(w)
     for i in range(len(words) - 1):
