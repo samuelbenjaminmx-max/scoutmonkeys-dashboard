@@ -13,6 +13,15 @@ from pathlib import Path
 from flask import Flask, Response, redirect, render_template_string, request, session, stream_with_context, url_for
 
 app = Flask(__name__)
+
+# Startup version log — confirms which commit Railway is running.
+try:
+    _git_sha = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"],
+                                       stderr=subprocess.DEVNULL).decode().strip()
+except Exception:
+    _git_sha = "unknown"
+print(f"[startup] scoutmonkeys commit={_git_sha} — H1 bold-paragraph+Claude fallback active", flush=True)
+
 _secret_key = os.environ.get("SECRET_KEY", "")
 if not _secret_key:
     _secret_key = secrets.token_hex(32)

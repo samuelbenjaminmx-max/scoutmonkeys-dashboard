@@ -1,5 +1,5 @@
 """
-Scoutmonkeys publishing pipeline: Google Doc → WordPress draft (CD / DCR) with QA + Twilio WhatsApp.
+Scoutmonkeys publishing pipeline: Google Doc → WordPress draft (CD / DCR) with QA + Twilio SMS.
 
 Environment variables are documented in CLAUDE.md. Run:
 
