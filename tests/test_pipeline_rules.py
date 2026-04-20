@@ -273,48 +273,48 @@ class TestImageSourceCredits:
 class TestAioseoSeoTitlePhraseBoundary:
     SUF = " | Cultural Daily"
 
-    def test_short_title_returned_verbatim_with_suffix(self):
+    def test_step1_short_title_returned_verbatim_with_suffix(self):
         title = "Visit Gatlinburg This Fall"
         result = build_cd_aioseo_seo_title(title, "")
         assert result == title + self.SUF
         assert len(result) <= 60
 
-    def test_colon_cut_preferred_over_mid_phrase_clip(self):
-        # Budget = 43. "Culinary Trails" (15) fits; nothing after the colon fits cleanly.
-        title = "Culinary Trails: Smart Ways to Weave Food into Your Travel Plans"
-        result = build_cd_aioseo_seo_title(title, "")
-        assert result.endswith(self.SUF), f"Missing suffix: {result!r}"
-        assert len(result) <= 60, f"Exceeds 60 chars: {result!r}"
-        # Must cut at the colon — "Culinary Trails" is the only natural boundary
-        assert "Culinary Trails" in result
-        assert "Weave Food" not in result, f"Mid-phrase 'Weave Food' leaked into: {result!r}"
-
-    def test_longest_comma_cut_chosen(self):
-        # "A, B, C: D" — colon cut gives "A, B, C" (7 chars); comma cuts give "A" (1) and "A, B" (4)
-        # Longest that fits: "A, B, C" via colon split
-        title = "Casino Bonuses, Free Spins, and Loyalty Perks: The Complete Guide"
-        result = build_cd_aioseo_seo_title(title, "")
-        assert result.endswith(self.SUF)
-        assert len(result) <= 60
-        # The colon prefix "Casino Bonuses, Free Spins, and Loyalty Perks" = 46 chars > budget 43
-        # The comma prefix "Casino Bonuses, Free Spins, and Loyalty Perks" is also 46 — too long
-        # Next comma: "Casino Bonuses, Free Spins" = 26 chars — fits
-        # So result must not contain anything from ": The Complete Guide"
-        assert "Complete Guide" not in result
-
-    def test_result_never_exceeds_60_chars(self):
-        for title in [
-            "A Very Very Very Very Very Very Very Very Very Very Very Long Title That Exceeds Budget",
-            "No Colon Or Comma But Still Way Too Long For Sixty Characters Total With Suffix",
-            "Short",
-        ]:
-            with patch("pipeline._anthropic_messages", return_value="Short fallback"):
-                result = build_cd_aioseo_seo_title(title, "")
-            assert len(result) <= 60, f"Exceeded 60 for {title!r}: {result!r}"
-
-    def test_full_h1_under_44_chars_uses_full_title(self):
+    def test_step1_exactly_43_char_h1_uses_full_title(self):
         # 43 + 17 = 60 exactly
         title = "A" * 43
         result = build_cd_aioseo_seo_title(title, "")
         assert result == title + self.SUF
         assert len(result) == 60
+
+    def test_step2_colon_cut_article_example(self):
+        # Exact article from the bug report. Prefix before first colon = "Culinary Trails" (15 chars).
+        # 15 + 17 = 32 ≤ 60 → step 2 fires, no Claude call needed.
+        title = "Culinary Trails: Smart Ways to Weave Food into Your Travel Plans"
+        result = build_cd_aioseo_seo_title(title, "")
+        assert result == "Culinary Trails" + self.SUF, f"Got: {result!r}"
+        assert "Weave Food" not in result
+
+    def test_step2_dash_cut(self):
+        # Spaced dash: prefix before " — " = "Best Casinos in Las Vegas" (25 chars).
+        title = "Best Casinos in Las Vegas — A Complete Guide to Winning"
+        result = build_cd_aioseo_seo_title(title, "")
+        assert result == "Best Casinos in Las Vegas" + self.SUF
+        assert len(result) <= 60
+
+    def test_step2_skipped_when_prefix_too_long(self):
+        # Colon prefix = 46 chars > budget 43 → step 2 fails, falls to Claude/clip.
+        title = "Casino Bonuses Free Spins and Loyalty Perks Here: The Complete Guide"
+        with patch("pipeline._anthropic_messages", return_value="Casino Bonuses Free Spins"):
+            result = build_cd_aioseo_seo_title(title, "")
+        assert result.endswith(self.SUF)
+        assert len(result) <= 60
+        assert "Complete Guide" not in result
+
+    def test_result_never_exceeds_60_chars(self):
+        for title in [
+            "A Very Very Very Very Very Very Very Very Very Very Very Long Title No Delimiter",
+            "Short",
+        ]:
+            with patch("pipeline._anthropic_messages", return_value="Short fallback"):
+                result = build_cd_aioseo_seo_title(title, "")
+            assert len(result) <= 60, f"Exceeded 60 for {title!r}: {result!r}"

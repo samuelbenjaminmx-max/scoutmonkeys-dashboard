@@ -2525,36 +2525,26 @@ def build_cd_aioseo_seo_title(full_h1: str, planner_hint: str) -> str:
 
     Shortening priority:
     1. Full H1 + suffix fits → return as-is.
-    2. Natural cut at longest prefix ending at ':' or ',' that fits the budget.
-    3. Claude picks a natural phrase boundary cut (do-not-rewrite prompt).
+    2. Prefix before the first ':' or structural dash (` — ` / ` - `) + suffix fits → use it.
+    3. Claude finds the best natural cut (phrase boundary, no rewrites).
     4. Word-safe clip as last resort.
     """
     lim = 60
     suf = CD_SEO_TITLE_SUFFIX          # " | Cultural Daily" — 17 chars
     t = unicodedata.normalize("NFKC", (full_h1 or "").strip())
 
-    # Fast path: full title + suffix fits.
+    # Step 1: full title fits.
     if len(t) + len(suf) <= lim:
         return t + suf
 
     budget = lim - len(suf)            # max chars for H1 portion (43 when suffix is 17)
 
-    def _natural_cuts(text: str) -> list:
-        """All prefixes that end at a ':' or ',' and fit within budget, longest first."""
-        seen: set = set()
-        hits: list = []
-        for sep in (":", ","):
-            parts = text.split(sep)
-            for i in range(1, len(parts)):
-                c = sep.join(parts[:i]).rstrip(" :,-")
-                if 5 <= len(c) <= budget and c not in seen:
-                    seen.add(c)
-                    hits.append(c)
-        return sorted(hits, key=len, reverse=True)
-
-    natural = _natural_cuts(t)
-    if natural:
-        return natural[0] + suf
+    # Step 2: prefix before the first structural delimiter (colon or spaced dash).
+    _delim = re.search(r":|(?<=\S)\s+[-—]\s+(?=\S)", t)
+    if _delim:
+        prefix = t[: _delim.start()].rstrip()
+        if len(prefix) >= 5 and len(prefix) + len(suf) <= lim:
+            return prefix + suf
 
     def _word_clip(text: str, max_chars: int) -> str:
         chunk = text[:max_chars]
@@ -2562,10 +2552,11 @@ def build_cd_aioseo_seo_title(full_h1: str, planner_hint: str) -> str:
         base = chunk[:sp].rstrip() if sp >= 10 else re.sub(r"\W+$", "", chunk).strip()
         return base or text[:max_chars].rstrip()
 
+    # Step 3: Claude picks the best natural cut.
     try:
         raw = _anthropic_messages(
             f"Shorten this title to ≤{budget} characters. "
-            "Cut at a natural phrase boundary — after a colon, comma, or at the end of a complete thought. "
+            "Cut at a natural phrase boundary — after a complete thought, clause, or idea. "
             "Do NOT rewrite or rephrase — only drop trailing words. "
             "Return only the shortened title, nothing else.",
             t,
@@ -2582,6 +2573,7 @@ def build_cd_aioseo_seo_title(full_h1: str, planner_hint: str) -> str:
     except Exception as exc:
         print(f"[warn] build_cd_aioseo_seo_title Claude call failed ({exc!r}) — using word-safe clip")
 
+    # Step 4: word-safe clip.
     base = _word_clip(t, budget)
     return (base + suf)[:lim].strip()
 
