@@ -2349,7 +2349,7 @@ def ensure_meta_description_length(meta: str, filler_plain: str) -> str:
     m = _strip_ellipsis(m)
     if _meta_has_boilerplate(m):
         m = m[: m.lower().find(next(p for p in _META_FORBIDDEN_PHRASES if p in m.lower()))].rstrip(" .,;")
-    return _strip_ellipsis(m[:META_DESCRIPTION_MAX])
+    return _enforce_meta_period(_strip_ellipsis(m[:META_DESCRIPTION_MAX]))
 
 
 def _generate_meta_from_body(body_plain: str, title: str) -> str:
@@ -2799,9 +2799,9 @@ def derive_meta_from_gdoc_first_paragraph(ghtml: str, max_len: int = 160) -> str
         t = p.get_text(" ", strip=True)
         if len(t) >= 40:
             if len(t) <= max_len:
-                return t
+                return _enforce_meta_period(t)
             cut = t[: max_len - 3].rsplit(" ", 1)[0]
-            return cut + "..."
+            return _enforce_meta_period(cut)
     return ""
 
 
@@ -3743,7 +3743,7 @@ def push_aioseo_and_cdseo(
     fk = (seo.get("focus_keyword") or "").strip()
 
     final_title  = st[:st_clip] if st else cur_title
-    final_desc   = md[:160]     if md else cur_desc
+    final_desc   = _enforce_meta_period(md[:160]) if md else _enforce_meta_period(cur_desc)
     final_og_url = og_custom_url if og_custom_url else cur_og_url
     final_og_type = "custom_image" if final_og_url else cur_og_type
 
@@ -5312,7 +5312,7 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         seo_title = _doc_seo_title
         manual_flags.append("doc_seo_title_override")
     if _doc_meta:
-        meta = _doc_meta[:160]
+        meta = _enforce_meta_period(_doc_meta[:160])
         manual_flags.append("doc_meta_description_override")
     if _doc_focus and not focus:
         focus = _doc_focus
