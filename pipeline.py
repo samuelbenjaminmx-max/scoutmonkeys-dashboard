@@ -1780,12 +1780,19 @@ def cd_claude_promote_subheadings(html: str, *, title: str) -> str:
         return str(soup)
     numbered = "\n".join(f"{i}. {c.get_text(' ', strip=True)!r}" for i, c in enumerate(candidates))
     system = (
-        "You are an HTML editor. Given candidate paragraphs from an article, "
-        "return a JSON array of zero-based indices of paragraphs that are section subheadings. "
-        "A subheading introduces a new section — it is a short label, not a sentence. "
+        "You are an HTML editor. Below are short standalone lines extracted from an article body. "
+        "They may not be bold or specially formatted — judge purely by meaning and position. "
+        "Return a JSON array of zero-based indices of lines that are section headings or subheadings "
+        "(i.e. they introduce a new section of the article, not a complete sentence of body text). "
         "Return only the JSON array, nothing else."
     )
-    user = f"Article title: {(title or '').strip()}\n\nCandidates:\n{numbered}"
+    user = (
+        f"Article title: {(title or '').strip()}\n\n"
+        "These are short standalone lines from the article. "
+        "Which ones are section headings or subheadings? "
+        "They may not be bold — judge by whether they introduce a new section.\n\n"
+        f"Candidates:\n{numbered}"
+    )
     try:
         raw = _anthropic_messages(system, user, temperature=0.0)
         import json as _json
@@ -2850,11 +2857,10 @@ def _cd_pick_focus_keyword_by_score(
         scored.append((sc, len(k.split()), i, k))
     qual = [t for t in scored if t[0] >= target - 0.001]
     if qual:
-        # Prefer more words first (2-word noun phrase beats generic single word),
-        # then highest score, then stable order.
-        qual.sort(key=lambda t: (-t[1], -t[0], t[2]))
+        # Score is the primary key; word count breaks ties (longer phrase preferred).
+        qual.sort(key=lambda t: (-t[0], -t[1], t[2]))
         return qual[0][3]
-    scored.sort(key=lambda t: (-t[1], -t[0], t[2]))
+    scored.sort(key=lambda t: (-t[0], -t[1], t[2]))
     return scored[0][3]
 
 
