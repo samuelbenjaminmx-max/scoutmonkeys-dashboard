@@ -2527,26 +2527,38 @@ def build_cd_aioseo_seo_title(full_h1: str, planner_hint: str) -> str:
     """
     AIOSEO title ≤60 chars, always ending with ' | Cultural Daily'.
 
-    Rule: try the full H1 first. If it doesn't fit, drop words from the END
-    one at a time until the H1 portion is ≤43 chars (43 + 17 = 60 total).
-    Never rewrites, rearranges, or changes words — only removes from the end.
+    If H1 fits within 43 chars, use it verbatim.
+    Otherwise ask Claude to shorten to ≤43 chars by dropping words from the end.
     """
     lim = 60
     suf = CD_SEO_TITLE_SUFFIX          # " | Cultural Daily" — 17 chars
+    budget = lim - len(suf)            # 43 chars for the H1 portion
     t = unicodedata.normalize("NFKC", (full_h1 or "").strip())
 
-    if len(t) + len(suf) <= lim:
+    if len(t) <= budget:
         return t + suf
 
-    budget = lim - len(suf)            # 43 chars for the H1 portion
+    # Ask Claude to shorten by dropping words from the end only.
+    system = (
+        "Shorten this title to fit within 43 characters. "
+        "Keep it as a complete meaningful phrase — never end mid-thought or with a dangling word. "
+        "Only remove words from the end, do not rephrase or rewrite. "
+        "Return only the shortened title."
+    )
+    try:
+        shortened = _anthropic_messages(system, t, temperature=0.0).strip().strip('"').strip("'")
+        if shortened and len(shortened) <= budget:
+            return shortened + suf
+    except Exception:
+        pass
+
+    # Fallback: word-drop without Claude
     words = t.split()
     while words and len(" ".join(words)) > budget:
         words.pop()
-
     clipped = " ".join(words).rstrip(" :,-")
     if clipped:
         return clipped + suf
-    # Fallback: single very-long word — hard-clip at budget
     return (t[:budget].rstrip() + suf)[:lim]
 
 
