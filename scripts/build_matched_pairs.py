@@ -166,20 +166,30 @@ def wp_find_post_by_title(title: str) -> Optional[dict]:
     if not title:
         return None
     title_l = title.lower().strip()
+    # NOTE: ?author=X returns HTTP 500 on Cultural Daily — never pass it in search params.
+    # Filter by author after receiving results instead.
     for status in ("publish", "draft", "any"):
         try:
             r = requests.get(
                 f"{WP_URL}/wp-json/wp/v2/posts",
                 auth=AUTH,
-                params={"search": title[:100], "author": AUTHOR_ID,
-                        "per_page": 10, "status": status},
+                params={"search": title[:100], "per_page": 20, "status": status},
                 timeout=30,
             )
             if not r.ok:
                 continue
-            for row in r.json():
-                if _clean_wp_title(row.get("title") or {}).lower() == title_l:
-                    return row
+            rows = r.json()
+            # Prefer author-exact match; fall back to any author for the same title
+            author_match = None
+            for row in rows:
+                t = _clean_wp_title(row.get("title") or {}).lower()
+                if t == title_l:
+                    if row.get("author") == AUTHOR_ID:
+                        return row
+                    if author_match is None:
+                        author_match = row
+            if author_match:
+                return author_match
         except Exception:
             continue
     return None

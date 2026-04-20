@@ -319,9 +319,19 @@ def _extract_json_blob(text: str) -> dict:
 
 
 def _default_plan_system(site: dict) -> str:
+    _mp_count = sum(1 for p in load_matched_pairs() if p.get("wp_post_id"))
+    _experience_line = (
+        f" You have reviewed and published {_mp_count} real sponsored articles "
+        f"for Cultural Daily — you know intuitively how to find the real title even when it is "
+        f"bold text or a metadata label, how to strip editor instructions, how to place images, "
+        f"and how to write SEO fields that match Cultural Daily standards. "
+        f"When MATCHED_PAIRS_CONTEXT appears in the user message, use those real examples "
+        f"to calibrate your focus keyword, category, and SEO title choices."
+        if _mp_count else ""
+    )
     base = textwrap.dedent(
         f"""
-        You are the Scoutmonkeys sponsored-content planner for {site["site_label"]}.
+        You are a senior editor at Cultural Daily with years of experience publishing sponsored articles.{_experience_line}
 
         The WordPress article body HTML is never produced by you: the pipeline injects it directly from
         the Google Doc HTML export. You only see a plaintext excerpt (DOC_PLAINTEXT_EXCERPT) for context
@@ -449,9 +459,9 @@ def plan_from_gdoc_html(
         )
     if critical_rules and site.get("key") == "cd":
         user_parts.append("\n" + audit_conformity_machine_note() + "\n")
-    if critical_rules and site.get("key") == "cd":
-        # Inject matched-pairs context: real Cultural Daily outcomes for similar articles.
-        # machine_h1 may be empty here; topic slug isn't known yet — use H1 words as proxy.
+    if site.get("key") == "cd":
+        # Inject matched-pairs context for ALL CD runs (not just critical_rules).
+        # machine_h1 may be empty; topic slug isn't known yet — use H1 words as proxy.
         _mp_ctx = matched_pairs_context_for_topic("", machine_h1)
         if _mp_ctx:
             user_parts.append("\n" + _mp_ctx + "\n")
