@@ -172,6 +172,13 @@ def _strip_ellipsis(text: str) -> str:
     return re.sub(r"[\s.…]+$", "", (text or "").rstrip()).rstrip(" ,;")
 
 
+def _enforce_meta_period(text: str) -> str:
+    """Strip trailing whitespace/ellipsis/punctuation then ensure exactly one period."""
+    t = re.sub(r"[\s]*[\.…\!\?]+$", "", (text or "").rstrip())
+    t = t.rstrip(" ,;:-")
+    return t + "." if t else t
+
+
 _TRAILING_INCOMPLETE_WORDS = frozenset(
     "and or but the a an with in of to for its their that from by as".split()
 )
@@ -349,7 +356,7 @@ def _default_plan_system(site: dict) -> str:
         Keys (all strings except as noted):
         - topic_slug: lowercase kebab-case, ascii, based on the article topic
         - post_title: concise H1-style title (CRITICAL runs may override from machine extract)
-        - focus_keyword: short phrase for SEO
+        - focus_keyword: ONE word preferred; two words only for brand names or compound nouns that cannot be reduced (e.g. "munchkin cat")
         - seo_title: <= 60 characters; hint for AIOSEO (pipeline may re-fit to word boundaries and suffix).
         - meta_description: 120–160 characters inclusive, plain text, grounded in the excerpt only
         - hero_pexels_query: 3-8 word Pexels search query (required when no client hero)
@@ -402,7 +409,7 @@ def plan_from_gdoc_html(
                 - post_title MUST match MACHINE_EXTRACTED_H1 exactly (character-for-character).
                 - Do NOT output article_body_html — the pipeline builds the article body only from the Doc HTML.
                 - Do NOT alter donation text — the pipeline appends the canonical donation block; never invent or rewrite it.
-                - focus_keyword: **1 word from the title when possible** (sometimes 2); short core subject (never the full H1); pipeline enforces internal content score ≥82 for CD QA.
+                - focus_keyword: **1 word** — the single best topical term; only 2 words for brand names or compound nouns that cannot be reduced (e.g. "munchkin cat"). Never the full H1. Pipeline enforces internal content score ≥82 for CD QA.
                 - seo_title: optional AIOSEO hint (<=60 chars); the pipeline builds the final AIOSEO title from the H1 with word-safe clipping and optional `` | Cultural Daily`` suffix.
                 - meta_description: 120–160 chars; use only wording supported by the plaintext excerpt (no new factual claims).
                 - hero_image_alt: required short visual description of the hero photograph (never the H1 string).
@@ -2358,10 +2365,9 @@ def _generate_meta_from_body(body_plain: str, title: str) -> str:
     user = f"Article title: {title}\n\nArticle body (excerpt):\n{excerpt}"
     try:
         raw = _anthropic_messages(system, user, temperature=0.3)
-        candidate = _strip_ellipsis(re.sub(r"\s+", " ", raw.strip()))
+        candidate = _enforce_meta_period(_strip_ellipsis(re.sub(r"\s+", " ", raw.strip())))
         candidate = _clip_to_complete_sentence(candidate, META_DESCRIPTION_MAX)
-        if candidate and not candidate.endswith((".", "!", "?")):
-            candidate = candidate.rstrip(",;: ") + "."
+        candidate = _enforce_meta_period(candidate)
         if not _meta_has_boilerplate(candidate) and META_DESCRIPTION_MIN <= len(candidate) <= META_DESCRIPTION_MAX:
             return candidate
         # Out of range or tainted — run through normaliser with body as filler
@@ -2696,14 +2702,15 @@ def refine_focus_keyword_for_content(
     user_msg = (
         f"Title: {(title or '').strip()}\n\n"
         f"Body excerpt: {excerpt}\n\n"
-        "What is the single best SEO focus keyword or 2-word phrase for this article? "
-        "Return ONLY the keyword or phrase, nothing else — no punctuation, no explanation. "
+        "What is the single best ONE-word SEO focus keyword for this article? "
+        "Return only that one word, nothing else — no punctuation, no explanation. "
+        "Only use two words if the topic absolutely requires it (e.g. brand names, compound nouns like 'munchkin cat'). "
         "Pick the most specific topical term. "
         "Never return generic words like: mistakes, tips, ways, avoid, best, top, guide, things, how."
     )
     try:
         raw = _anthropic_messages(
-            "You are an SEO specialist. Output only the focus keyword — one word or two words maximum.",
+            "You are an SEO specialist. Output only the focus keyword — prefer one word; use two only for brand names or compound nouns that cannot be reduced.",
             user_msg,
             temperature=0.0,
         )
@@ -5197,7 +5204,7 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     title = (plan.get("post_title") or "Untitled").strip()
     focus = (plan.get("focus_keyword") or "").strip()
     seo_title = (plan.get("seo_title") or title).strip()
-    meta = (plan.get("meta_description") or "").strip()[:160]
+    meta = _enforce_meta_period((plan.get("meta_description") or "").strip()[:160])
     hero_q = (plan.get("hero_pexels_query") or title).strip()
     cat_hint = (plan.get("category_hint") or "").strip() or "culture"
 
