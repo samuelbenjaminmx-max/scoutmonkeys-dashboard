@@ -2272,48 +2272,51 @@ def cd_format_body_inline_images(html: str, *, post_title: str = "", site: dict)
 
 def build_cd_aioseo_seo_title(full_h1: str, planner_hint: str) -> str:
     """
-    AIOSEO title ≤60 chars.
-    - If the H1 is already ≤60 chars, use it exactly as-is.
-    - If longer, ask Claude to shorten it by removing words from the end or
-      dropping filler — faithful to the original wording, not a rewrite.
-      Falls back to word-safe clip if Claude fails or returns out-of-range text.
+    AIOSEO title ≤60 chars, always ending with ' | Cultural Daily' when possible.
+
+    Rule: build '[H1] | Cultural Daily' first.
+    - If the full string is ≤60 chars → return it as-is (mandatory; never omit suffix).
+    - If it exceeds 60 chars → shorten the H1 portion (Claude, then word-safe clip)
+      until '[shortened] | Cultural Daily' fits, or drop the suffix as last resort.
     """
     lim = 60
+    suf = CD_SEO_TITLE_SUFFIX          # " | Cultural Daily" — 17 chars
     t = unicodedata.normalize("NFKC", (full_h1 or "").strip())
-    if len(t) <= lim:
-        return t
+
+    # Fast path: full title + suffix fits — always mandatory.
+    if len(t) + len(suf) <= lim:
+        return t + suf
+
+    # Need to shorten the H1 so '[shortened] | Cultural Daily' fits within 60.
+    budget = lim - len(suf)            # max chars available for the H1 portion
+
+    def _word_clip(text: str, max_chars: int) -> str:
+        chunk = text[:max_chars]
+        sp = chunk.rfind(" ") if not chunk[-1].isspace() else max_chars
+        base = chunk[:sp].rstrip() if sp >= 10 else re.sub(r"\W+$", "", chunk).strip()
+        return base or text[:max_chars].rstrip()
+
     try:
         raw = _anthropic_messages(
-            "Shorten this title to fit within 60 characters. "
+            f"Shorten this title to fit within {budget} characters. "
             "Stay as faithful as possible to the original wording — only remove words, "
             "do not rephrase or rewrite. Return only the shortened title, nothing else.",
             t,
             temperature=0.2,
         )
         candidate = re.sub(r"\s+", " ", raw.strip()).strip("\"'")
-        # Trim word-by-word if Claude went marginally over the limit
         words = candidate.split()
-        while words and len(" ".join(words)) > lim:
+        while words and len(" ".join(words)) > budget:
             words.pop()
         candidate = " ".join(words)
-        if candidate and 10 <= len(candidate) <= lim:
-            suf = CD_SEO_TITLE_SUFFIX
-            if "cultural daily" not in candidate.lower() and len(candidate) + len(suf) <= lim:
-                candidate = (candidate + suf).strip()
-            return candidate[:lim].strip()
+        if candidate and 10 <= len(candidate) <= budget:
+            return candidate + suf
         print(f"[warn] build_cd_aioseo_seo_title: Claude returned unusable title ({len(candidate)} chars) — using word-safe clip")
     except Exception as exc:
         print(f"[warn] build_cd_aioseo_seo_title Claude call failed ({exc!r}) — using word-safe clip")
-    # Fallback: word-safe clip from H1
-    chunk = t[:lim]
-    sp = chunk.rfind(" ") if not chunk[-1].isspace() else len(chunk)
-    base = chunk[:sp].rstrip() if sp >= 12 else re.sub(r"\W+$", "", chunk).strip()
-    if not base:
-        base = t[:lim].rstrip()
-    suf = CD_SEO_TITLE_SUFFIX
-    if "cultural daily" not in base.lower() and len(base) + len(suf) <= lim:
-        base = (base + suf).strip()
-    return base[:lim].strip()
+
+    base = _word_clip(t, budget)
+    return (base + suf)[:lim].strip()
 
 
 def ensure_meta_description_length(meta: str, filler_plain: str) -> str:
