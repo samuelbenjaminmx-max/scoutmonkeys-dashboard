@@ -2148,29 +2148,32 @@ def _cd_split_paragraphs_with_multiple_bare_imgs_into_figures(soup: BeautifulSou
 
 
 def _cd_apply_figure_center_styles(fig, img) -> None:
-    cls = fig.get("class") or []
-    if isinstance(cls, str):
-        cls = [c for c in cls.split() if c]
+    # Use native WP classes the CD theme already respects — no inline styles.
+    fig_cls = fig.get("class") or []
+    if isinstance(fig_cls, str):
+        fig_cls = [c for c in fig_cls.split() if c]
     for token in ("wp-block-image", "aligncenter"):
-        if token not in cls:
-            cls.append(token)
-    fig["class"] = cls
+        if token not in fig_cls:
+            fig_cls.append(token)
+    fig["class"] = fig_cls
     fig["align"] = "center"
-    # !important overrides theme CSS that stretches images to full width.
-    fig["style"] = "max-width:700px !important;width:700px !important;margin:0 auto;display:block;text-align:center"
-    img["style"] = "max-width:100% !important;width:100% !important;height:auto;display:block"
-    icls = img.get("class") or []
-    if isinstance(icls, str):
-        icls = [c for c in icls.split() if c]
-    for token in ("aligncenter", "size-full"):
-        if token not in icls:
-            icls.append(token)
-    img["class"] = icls
+    if "style" in fig.attrs:
+        del fig["style"]
+
+    img_cls = img.get("class") or []
+    if isinstance(img_cls, str):
+        img_cls = [c for c in img_cls.split() if c]
+    # Replace size-full with size-large; keep aligncenter.
+    img_cls = [c for c in img_cls if c not in ("size-full", "size-large")]
+    for token in ("aligncenter", "size-large"):
+        if token not in img_cls:
+            img_cls.append(token)
+    img["class"] = img_cls
     img["align"] = "center"
-    # Remove GDoc pixel dimension attributes that override CSS.
-    for attr in ("width", "height"):
-        if img.get(attr):
-            del img[attr]
+    img["width"] = "700"
+    img["height"] = "auto"
+    if "style" in img.attrs:
+        del img["style"]
 
 
 def cd_format_body_inline_images(html: str, *, post_title: str = "", site: dict) -> str:
