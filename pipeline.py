@@ -2730,6 +2730,31 @@ _CD_BODY_BOOST_KEYWORDS = (
 )
 
 
+def _best_scoring_keyword_variant(kw: str, hay: str, title: str, *, threshold: float = 80.0) -> str:
+    """
+    Score ``kw`` against the article body. If score < threshold, also test each
+    individual word in the keyword and return whichever variant scores highest.
+    Guarantees the returned keyword is never empty.
+    """
+    candidates = [kw]
+    words = kw.split()
+    if len(words) > 1:
+        candidates.extend(words)
+    best_kw = kw
+    best_sc = -1.0
+    for c in candidates:
+        c2 = compact_focus_keyword(c, max_words=2, max_len=36)
+        if not c2:
+            continue
+        sc = focus_keyword_content_score(c2, hay, title=title)
+        if sc > best_sc:
+            best_sc = sc
+            best_kw = c2
+    if best_kw != kw:
+        print(f"[focus-kw] Score test: {kw!r}→{best_sc:.0f} — best variant: {best_kw!r}")
+    return best_kw or kw
+
+
 def refine_focus_keyword_for_content(
     focus: str,
     *,
@@ -2738,7 +2763,7 @@ def refine_focus_keyword_for_content(
     title: str,
     topic_slug: str,
 ) -> str:
-    """Ask Claude for the single best SEO focus keyword / 2-word phrase for this article."""
+    """Ask Claude for the single best SEO focus keyword, then score-test it against the body."""
     plain_body = re.sub(r"<[^>]+>", " ", body or doc_html or "")
     plain_body = re.sub(r"\s+", " ", plain_body).strip()
     excerpt = plain_body[:500]
@@ -2759,11 +2784,13 @@ def refine_focus_keyword_for_content(
         )
         kw = compact_focus_keyword(raw.strip().lower(), max_words=2, max_len=36)
         if kw:
-            print(f"[focus-kw] Claude chose: {kw!r}")
+            kw = _best_scoring_keyword_variant(kw, plain_body, title)
+            print(f"[focus-kw] Final keyword: {kw!r}")
             return kw
     except Exception as exc:
         print(f"[focus-kw] Claude call failed ({exc!r}); falling back to topic slug")
-    return compact_focus_keyword((focus or topic_slug).replace("-", " "), max_words=2, max_len=36)
+    fallback = compact_focus_keyword((focus or topic_slug).replace("-", " "), max_words=2, max_len=36)
+    return _best_scoring_keyword_variant(fallback, plain_body, title) if fallback else fallback
 
 
 def derive_meta_from_gdoc_first_paragraph(ghtml: str, max_len: int = 160) -> str:
