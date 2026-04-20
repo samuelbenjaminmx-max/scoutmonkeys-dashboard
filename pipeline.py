@@ -2156,14 +2156,10 @@ def _cd_apply_figure_center_styles(fig, img) -> None:
             cls.append(token)
     fig["class"] = cls
     fig["align"] = "center"
-    fig["style"] = _merge_css_style(
-        fig.get("style"),
-        "margin-left:auto;margin-right:auto;text-align:center;max-width:100%",
-    )
-    img["style"] = _merge_css_style(
-        img.get("style"),
-        "display:block;margin-left:auto;margin-right:auto;max-width:100%;height:auto",
-    )
+    # Hard-set: constrain body images to 700 px wide, centred. Replaces any prior style.
+    fig["style"] = "max-width:700px;margin:0 auto;display:block;text-align:center"
+    # Strip all GDoc inline dimensions/transforms; set clean responsive style.
+    img["style"] = "width:100%;height:auto;display:block"
     icls = img.get("class") or []
     if isinstance(icls, str):
         icls = [c for c in icls.split() if c]
@@ -2172,6 +2168,10 @@ def _cd_apply_figure_center_styles(fig, img) -> None:
             icls.append(token)
     img["class"] = icls
     img["align"] = "center"
+    # Remove GDoc pixel dimension attributes that override CSS.
+    for attr in ("width", "height"):
+        if img.get(attr):
+            del img[attr]
 
 
 def cd_format_body_inline_images(html: str, *, post_title: str = "", site: dict) -> str:
