@@ -721,23 +721,49 @@ def audit_conformity_machine_note() -> str:
 
 def extract_h1_from_gdoc_html(ghtml: str) -> str:
     soup = BeautifulSoup(ghtml, "html.parser")
+
+    # 1. Explicit <h1> tag.
     h1 = soup.find("h1")
     if h1:
         t = h1.get_text(" ", strip=True)
         if t:
             return t
+
+    # 2. <p> with "title" in its CSS class (Google Docs "Title" paragraph style).
     for p in soup.find_all("p"):
         cls = " ".join(p.get("class") or []).lower()
         if "title" in cls:
             t = p.get_text(" ", strip=True)
             if t:
                 return t
+
+    # 3. <title> element (GDoc exports as "Article Title - Google Docs").
     tit = soup.find("title")
     if tit and tit.string:
         candidate = tit.string.split(" - ")[0].strip()
         if candidate:
             return candidate
-    # Claude fallback: ask the model to identify the headline from the doc top.
+
+    # 4. First paragraph whose ENTIRE visible text is wrapped in bold/strong —
+    #    common when the author typed the title as bold text rather than using
+    #    a heading style.
+    body = soup.find("body") or soup
+    section_tags = {"h2", "h3", "h4", "h5", "h6"}
+    for el in body.find_all(True):
+        if el.name in section_tags:
+            break  # stop before the first sub-heading
+        if el.name != "p":
+            continue
+        text = el.get_text(" ", strip=True)
+        if not (10 <= len(text) <= 200):
+            continue
+        inner = el.decode_contents().strip()
+        # Accept if content is entirely inside <strong> or <b>
+        if re.match(r"^<(?:strong|b)[^>]*>.*</(?:strong|b)>$", inner, re.I | re.S):
+            print(f"[h1-fallback] Bold-paragraph title: {text!r}")
+            return text
+
+    # 5. Claude fallback: ask the model to identify the headline from the doc top.
     plain = soup.get_text("\n", strip=True)[:1000]
     if plain.strip():
         try:
