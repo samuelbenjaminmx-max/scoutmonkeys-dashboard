@@ -2442,6 +2442,7 @@ _CD_FOCUS_STOPWORDS = frozenset(
     say said says get got go going went come came make made take took see saw know knew
     think thought want wanted one two first last next new old long big small high low let
     lets via per vs
+    mistakes tips ways things avoid best top guide right wrong need needs
     """.split()
 )
 
@@ -2552,9 +2553,11 @@ def _cd_pick_focus_keyword_by_score(
         scored.append((sc, len(k.split()), i, k))
     qual = [t for t in scored if t[0] >= target - 0.001]
     if qual:
-        qual.sort(key=lambda t: (-t[0], t[1], t[2]))
+        # Prefer more words first (2-word noun phrase beats generic single word),
+        # then highest score, then stable order.
+        qual.sort(key=lambda t: (-t[1], -t[0], t[2]))
         return qual[0][3]
-    scored.sort(key=lambda t: (-t[0], t[1], t[2]))
+    scored.sort(key=lambda t: (-t[1], -t[0], t[2]))
     return scored[0][3]
 
 
@@ -3108,6 +3111,37 @@ def cd_delete_wp_media_attachment(site: dict, media_id: int) -> None:
     )
     if not r.ok:
         print(f"[warn] DELETE media id={media_id} returned {r.status_code}: {r.text[:200]}")
+
+
+def cd_delete_slug_prefix_media_attachments(site: dict, prefix: str, slug: str) -> List[int]:
+    """Delete all media whose title starts with '{prefix}-{slug}-hero' or '-social'.
+    Called before each new upload to prevent orphan accumulation from failed runs."""
+    if site.get("key") != "cd":
+        return []
+    wp, auth = wp_auth(site)
+    search_prefixes = [f"{prefix}-{slug}-hero", f"{prefix}-{slug}-social"]
+    deleted: List[int] = []
+    for term in search_prefixes:
+        r = requests.get(
+            f"{wp}/wp-json/wp/v2/media",
+            auth=auth,
+            params={"search": term, "per_page": 100, "orderby": "date", "order": "desc"},
+            timeout=30,
+        )
+        if not r.ok:
+            print(f"[warn] media search for {term!r} returned {r.status_code}")
+            continue
+        for row in r.json():
+            tit = row.get("title") or {}
+            raw = html_module.unescape(
+                re.sub(r"<[^>]+>", "", (tit.get("raw") or tit.get("rendered") or ""))
+            ).strip().lower()
+            if raw.startswith(term.lower()):
+                mid = int(row["id"])
+                cd_delete_wp_media_attachment(site, mid)
+                deleted.append(mid)
+                print(f"[img-cleanup] Deleted orphan attachment id={mid} title={raw!r}")
+    return deleted
 
 
 def wp_upload_jpeg(
@@ -5293,10 +5327,12 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     else:
         alt = f"{title} — banner image highlighting the story's subject matter."
 
-    # Pexels articles use a -1 suffix in the filename so retried runs don't collide
-    # with orphan uploads from previous failed attempts.  Client-image articles keep
-    # the plain filename (unchanged pre-existing behaviour).
-    fn_suffix = "-1" if not used_client_hero else ""
+    if site["key"] == "cd":
+        _cleaned = cd_delete_slug_prefix_media_attachments(site, prefix, slug)
+        if _cleaned:
+            print(f"[img-cleanup] Removed {len(_cleaned)} prior attachment(s) for slug {slug!r}: {_cleaned}")
+
+    fn_suffix = ""
     hero_fn = f"{prefix}-{slug}-hero{fn_suffix}.jpg"
     use_png_social = cd_social_upload_should_use_png(site)
 
