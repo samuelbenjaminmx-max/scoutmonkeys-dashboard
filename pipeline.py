@@ -46,10 +46,12 @@ PEXELS_KEY = os.environ.get("PEXELS_API_KEY", "")
 TWILIO_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
 TWILIO_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
 TWILIO_FROM = os.environ.get("TWILIO_WHATSAPP_FROM", "")
-# When ``WHATSAPP_TO`` is unset, Twilio ``To`` is built from ``WHATSAPP_PHONE`` (E.164) per CLAUDE.md.
-WHATSAPP_FALLBACK_E164 = "+5215549571586"
+TWILIO_SMS_FROM = os.environ.get("TWILIO_SMS_FROM", "")
+SMS_FALLBACK_E164 = "+5215549571586"
+SMS_TO = (os.environ.get("SMS_TO") or os.environ.get("WHATSAPP_PHONE") or "").strip() or SMS_FALLBACK_E164
+# Legacy WhatsApp vars kept for reference only.
 WA_TO = os.environ.get("WHATSAPP_TO")
-WA_PHONE = (os.environ.get("WHATSAPP_PHONE") or "").strip() or WHATSAPP_FALLBACK_E164
+WA_PHONE = (os.environ.get("WHATSAPP_PHONE") or "").strip() or SMS_FALLBACK_E164
 
 try:
     OUR_FRIENDS_AUTHOR_ID = int(os.environ.get("OUR_FRIENDS_AUTHOR_ID", "19"))
@@ -60,7 +62,7 @@ except (ValueError, TypeError):
 def _refresh_runtime_env_from_os() -> None:
     """Re-read env-backed module globals (needed after `_apply_repo_dotenv_for_cli()`)."""
     global ANTHROPIC_KEY, ANTHROPIC_MODEL, PEXELS_KEY
-    global TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM, WA_TO, WA_PHONE
+    global TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM, TWILIO_SMS_FROM, SMS_TO, WA_TO, WA_PHONE
     global OUR_FRIENDS_AUTHOR_ID
     ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
     ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
@@ -68,8 +70,10 @@ def _refresh_runtime_env_from_os() -> None:
     TWILIO_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
     TWILIO_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
     TWILIO_FROM = os.environ.get("TWILIO_WHATSAPP_FROM", "")
+    TWILIO_SMS_FROM = os.environ.get("TWILIO_SMS_FROM", "")
+    SMS_TO = (os.environ.get("SMS_TO") or os.environ.get("WHATSAPP_PHONE") or "").strip() or SMS_FALLBACK_E164
     WA_TO = os.environ.get("WHATSAPP_TO")
-    WA_PHONE = (os.environ.get("WHATSAPP_PHONE") or "").strip() or WHATSAPP_FALLBACK_E164
+    WA_PHONE = (os.environ.get("WHATSAPP_PHONE") or "").strip() or SMS_FALLBACK_E164
     try:
         OUR_FRIENDS_AUTHOR_ID = int(os.environ.get("OUR_FRIENDS_AUTHOR_ID", "19"))
     except (ValueError, TypeError):
@@ -5058,8 +5062,8 @@ def remediate_latest_cd_draft() -> dict:
         critical_rules=True,
     )
     edit_url = f"{site['wp_url'].rstrip('/')}/wp-admin/post.php?post={post_id}&action=edit"
-    print("[remediate] WhatsApp notification (draft updated)…")
-    send_whatsapp(
+    print("[remediate] SMS notification (draft updated)…")
+    send_sms(
         post_id,
         raw_title,
         edit_url,
@@ -5092,7 +5096,7 @@ def _whatsapp_to_address() -> str:
     return f"whatsapp:{e164}"
 
 
-def send_whatsapp(
+def send_sms(
     post_id: int,
     title: str,
     edit_url: str,
@@ -5101,19 +5105,18 @@ def send_whatsapp(
     qa_ok: Optional[bool] = None,
     extra_line: str = "",
 ) -> None:
-    # Re-load `.env` so CLI runs pick up real Twilio values (module-level globals are set at import).
     _apply_repo_dotenv_for_cli()
     _merge_repo_dotenv_twilio_whatsapp_overrides()
     _refresh_runtime_env_from_os()
-    if not TWILIO_SID or not TWILIO_TOKEN or not TWILIO_FROM:
-        print("[10] ⚠ WhatsApp skipped — TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_WHATSAPP_FROM not all set")
+    if not TWILIO_SID or not TWILIO_TOKEN or not TWILIO_SMS_FROM:
+        print("[10] ⚠ SMS skipped — TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_SMS_FROM not all set")
         return
     if TWILIO_SID == "TWILIO_ACCOUNT_SID" or TWILIO_TOKEN == "TWILIO_AUTH_TOKEN":
-        print("[10] ⚠ WhatsApp skipped — Twilio env vars are still Railway placeholders")
+        print("[10] ⚠ SMS skipped — Twilio env vars are still Railway placeholders")
         return
-    to = _whatsapp_to_address()
+    to = SMS_TO
     if not to:
-        print("[10] ⚠ WhatsApp skipped — could not build recipient (WHATSAPP_TO / WHATSAPP_PHONE)")
+        print("[10] ⚠ SMS skipped — SMS_TO not set")
         return
     qa_line = ""
     if qa_ok is True:
@@ -5122,24 +5125,28 @@ def send_whatsapp(
         qa_line = "\nQA: some checks failed — open the draft in WordPress."
     extra = f"\n{(extra_line or '').strip()}" if (extra_line or "").strip() else ""
     msg = (
-        f"✅ Draft saved — {site_label}\n"
+        f"Draft saved - {site_label}\n"
         f"\"{title}\"\n"
         f"ID: {post_id}\n"
         f"Edit: {edit_url}"
         f"{qa_line}"
         f"{extra}"
     )
-    print(f"[10] Sending WhatsApp to {to}…")
+    print(f"[10] Sending SMS to {to}…")
     r = requests.post(
         f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_SID}/Messages.json",
         auth=(TWILIO_SID, TWILIO_TOKEN),
-        data={"From": TWILIO_FROM, "To": to, "Body": msg},
+        data={"From": TWILIO_SMS_FROM, "To": to, "Body": msg},
         timeout=30,
     )
     if not r.ok:
-        print(f"[10] Twilio error {r.status_code} to={to!r}: {r.text[:800]}")
+        print(f"[10] Twilio SMS error {r.status_code} to={to!r}: {r.text[:800]}")
     else:
-        print(f"[10] WhatsApp sent to {to}.")
+        print(f"[10] SMS sent to {to}.")
+
+
+# Keep old name as alias so any external callers aren't broken.
+send_whatsapp = send_sms
 
 
 # ---------------------------------------------------------------------------
@@ -5602,8 +5609,8 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         critical_rules=cr,
     )
 
-    print(f"[10] WhatsApp notification…")
-    send_whatsapp(post_id, post_title, edit_url, site["site_label"], qa_ok=qa_ok)
+    print(f"[10] SMS notification…")
+    send_sms(post_id, post_title, edit_url, site["site_label"], qa_ok=qa_ok)
 
     return {
         "post_id": post_id,
