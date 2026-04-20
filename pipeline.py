@@ -2745,7 +2745,7 @@ _CD_FOCUS_STOPWORDS = frozenset(
     out up down off within across along though although whether another other any many much
     say said says get got go going went come came make made take took see saw know knew
     think thought want wanted one two first last next new old long big small high low let
-    lets via per vs
+    lets via per vs pre non re de pro anti co
     mistakes tips ways things avoid best top guide right wrong need needs
     """.split()
 )
