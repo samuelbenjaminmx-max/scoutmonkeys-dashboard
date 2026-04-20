@@ -4329,7 +4329,7 @@ def verify_post(
             f"{len(raw_title)} chars vs expected {len(expect_exact_title)}",
         )
     else:
-        chk(f"Post title ≤{title_max} chars", len(raw_title) <= title_max, f"{len(raw_title)} chars")
+        chk("Post title set (verbatim H1)", bool(raw_title), f"{len(raw_title)} chars")
 
     seo_title = seo_r.get("aioseo_db", {}).get("title") or ""
     if site.get("key") == "cd":
@@ -5602,6 +5602,22 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
             pil, credit_source_page_url=hero_credit_url
         )
         manual_flags.extend(prov_flags)
+
+        # Fallback: 'Image source' / 'Source' / 'Photo source' link in the Doc body
+        if not prov_url:
+            _, _doc_img_credits = cd_extract_image_source_credits(ghtml)
+            if _doc_img_credits:
+                _href_m = re.search(r'href="([^"]+)"', _doc_img_credits)
+                if _href_m:
+                    from urllib.parse import urlparse as _urlparse
+                    _src_url = _href_m.group(1)
+                    _domain = _urlparse(_src_url).netloc.lstrip("www.")
+                    _pg_ok, _pg_title = cd_fetch_credit_page_rights_and_title(_src_url)
+                    _label = f"{_pg_title} via {_domain}".strip() if _pg_title else f"via {_domain}"
+                    prov_url = _src_url
+                    prov_label = _label
+                    print(f"[cite] Image-source link in Doc → {_src_url!r}, label={_label!r}")
+
         hero_img, social_img = build_resized_pair_from_pil(site, pil)
         p_name = prov_label
         p_profile = prov_url or "https://www.pexels.com/"
@@ -5640,11 +5656,8 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
             f"expected ({site['social_w']}×{site['social_h']})"
         )
 
-    post_title = title
+    post_title = title  # always the verbatim H1 — never shortened
     post_title_trimmed = False
-    if not cr and len(post_title) > site["title_max"]:
-        post_title = post_title[: site["title_max"] - 1].rstrip() + "…"
-        post_title_trimmed = True
 
     if site["key"] == "cd":
         pd = cd_delete_cd_drafts_matching_title(site, post_title)
