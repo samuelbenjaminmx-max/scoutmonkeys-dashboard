@@ -1881,17 +1881,21 @@ def cd_claude_promote_subheadings(html: str, *, title: str) -> str:
         return str(soup)
     numbered = "\n".join(f"{i}. {c.get_text(' ', strip=True)!r}" for i, c in enumerate(candidates))
     system = (
-        "You are an HTML editor. Below are short standalone lines extracted from an article body. "
-        "They may not be bold or specially formatted — judge purely by meaning and position. "
-        "Return a JSON array of zero-based indices of lines that are section headings or subheadings "
-        "(i.e. they introduce a new section of the article, not a complete sentence of body text). "
+        "You are an HTML editor. "
+        "Return a JSON array of zero-based indices of lines that are SECTION HEADINGS. "
+        "A section heading is a short label that names the topic of what follows — like a chapter title. "
+        "NOT a section heading: any line that reads as a sentence, flows into the text, "
+        "or uses transitional phrasing such as 'Let's explore', 'In this article', "
+        "'Here are', 'We will', 'Now that', 'As you can see', or similar. "
+        "When in doubt, do NOT include the line. "
         "Return only the JSON array, nothing else."
     )
     user = (
         f"Article title: {(title or '').strip()}\n\n"
-        "These are short standalone lines from the article. "
-        "Which ones are section headings or subheadings? "
-        "They may not be bold — judge by whether they introduce a new section.\n\n"
+        "These are short standalone lines from the article body. "
+        "Which ones are SECTION HEADINGS that introduce a new topic? "
+        "A heading is a label for what follows, NOT a sentence that flows into the text. "
+        "Transitional sentences like 'Let's explore X' or 'In this article we will' are NOT headings.\n\n"
         f"Candidates:\n{numbered}"
     )
     try:
