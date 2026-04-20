@@ -2384,6 +2384,42 @@ def _generate_meta_from_body(body_plain: str, title: str) -> str:
         return ensure_meta_description_length("", excerpt)
 
 
+_METADATA_LABEL_PREFIXES: Tuple[str, ...] = (
+    "meta title:",
+    "meta title :",
+    "meta description:",
+    "meta description :",
+    "мета-тег",
+    "мета тег",
+    "focus keyword:",
+    "focus keyword :",
+    "focus keyphrase:",
+    "category:",
+    "category :",
+    "seo title:",
+    "seo title :",
+)
+
+
+def _strip_metadata_label_lines(body_html: str) -> Tuple[str, int]:
+    """
+    Hard-coded pre-pass: remove any block element whose visible text starts with
+    a known metadata label prefix (case-insensitive, any language).  Runs before
+    Claude so Claude failures cannot leave these lines in the body.
+    Returns (cleaned_html, count_removed).
+    """
+    if not body_html:
+        return body_html, 0
+    soup = BeautifulSoup(body_html, "html.parser")
+    removed = 0
+    for el in list(soup.find_all(["p", "h1", "h2", "h3", "h4", "h5", "h6", "div", "span"])):
+        text = el.get_text(" ", strip=True).lower()
+        if any(text.startswith(prefix) for prefix in _METADATA_LABEL_PREFIXES):
+            el.decompose()
+            removed += 1
+    return str(soup), removed
+
+
 def claude_strip_doc_top_editor_lines(
     body_html: str,
 ) -> Tuple[str, Optional[str], Optional[str], Optional[str], Optional[str]]:
@@ -5074,29 +5110,8 @@ def remediate_latest_cd_draft() -> dict:
         qa_ok=qa,
         extra_line="Pipeline: remediate-latest cd (draft refreshed).",
     )
-    actions.append("whatsapp: draft notification sent (if Twilio configured)")
+    actions.append("sms: draft notification sent (if Twilio configured)")
     return {"post_id": post_id, "hero_id": hero_id, "social_id": int(sid), "actions": actions, "qa_ok": qa}
-
-
-def _whatsapp_to_address() -> str:
-    """
-    Twilio ``To`` for WhatsApp. Prefer ``WHATSAPP_TO`` (full ``whatsapp:+…`` URI); else
-    ``WHATSAPP_PHONE`` as E.164; else documented fallback (CLAUDE.md).
-    """
-    raw = (WA_TO or "").strip()
-    if raw:
-        if raw.lower().startswith("whatsapp:"):
-            return raw
-        if raw.startswith("+"):
-            return f"whatsapp:{raw}"
-        return raw
-    p = (WA_PHONE or "").strip()
-    if p.lower().startswith("whatsapp:"):
-        return p
-    e164 = p or WHATSAPP_FALLBACK_E164
-    if not e164.startswith("+"):
-        e164 = "+" + e164.lstrip("+")
-    return f"whatsapp:{e164}"
 
 
 def send_sms(
@@ -5109,7 +5124,6 @@ def send_sms(
     extra_line: str = "",
 ) -> None:
     _apply_repo_dotenv_for_cli()
-    _merge_repo_dotenv_twilio_whatsapp_overrides()
     _refresh_runtime_env_from_os()
     if not TWILIO_SID or not TWILIO_TOKEN or not TWILIO_SMS_FROM:
         print("[10] ⚠ SMS skipped — TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_SMS_FROM not all set")
@@ -5260,6 +5274,10 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     print("[2a] Article body from Google Doc HTML export (Claude article_body_html ignored).")
     manual_flags.append("article_body_source:google_doc_export")
     body = extract_google_doc_body_inner_html(ghtml)
+
+    body, _hardcoded_removed = _strip_metadata_label_lines(body)
+    if _hardcoded_removed:
+        print(f"[2b] Hard-coded metadata strip: removed {_hardcoded_removed} label line(s) (Meta title/description, Focus keyword, Category, etc.)")
 
     print("[2b] Claude doc-top clean: scanning first 1000 chars for editor notes / metadata labels…")
     body, _doc_seo_title, _doc_meta, _doc_focus, _doc_category = claude_strip_doc_top_editor_lines(body)
