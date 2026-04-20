@@ -1103,6 +1103,107 @@ def cd_fetch_credit_page_rights_and_title(page_url: str) -> Tuple[bool, str]:
     return False, title_snip
 
 
+_STOCK_PLATFORM_NAMES: dict = {
+    "shutterstock.com": "Shutterstock",
+    "unsplash.com": "Unsplash",
+    "pexels.com": "Pexels",
+    "gettyimages.com": "Getty Images",
+    "stock.adobe.com": "Adobe Stock",
+    "adobe.com": "Adobe Stock",
+    "alamy.com": "Alamy",
+    "istockphoto.com": "iStock",
+    "istock.com": "iStock",
+    "dreamstime.com": "Dreamstime",
+    "depositphotos.com": "Depositphotos",
+    "123rf.com": "123RF",
+    "bigstockphoto.com": "Bigstock",
+}
+
+
+def _unwrap_google_redirect_url(url: str) -> str:
+    """Extract the real target URL from a google.com/url?q=... redirect."""
+    from urllib.parse import urlparse, parse_qs
+    try:
+        p = urlparse((url or "").strip())
+        if p.netloc in ("www.google.com", "google.com") and "/url" in p.path:
+            qs = parse_qs(p.query)
+            for key in ("q", "url"):
+                targets = qs.get(key) or []
+                if targets and targets[0].startswith("http"):
+                    return targets[0]
+    except Exception:
+        pass
+    return url
+
+
+def _extract_platform_photographer(url: str) -> Tuple[str, str]:
+    """
+    Fetch a stock-photo source page and return (photographer_name, platform_label).
+    Tries JSON-LD creator, then platform-specific heuristics. Never raises.
+    Returns ("", platform_label) when photographer name cannot be determined.
+    """
+    import json as _json
+    from urllib.parse import urlparse as _urlparse
+    try:
+        domain = _urlparse(url).netloc.lstrip("www.")
+    except Exception:
+        domain = ""
+    platform = next(
+        (v for k, v in _STOCK_PLATFORM_NAMES.items() if k in domain),
+        domain.split(".")[0].title() if domain else "",
+    )
+    try:
+        resp = requests.get(
+            url,
+            timeout=15,
+            headers={"User-Agent": "ScoutmonkeysPipeline/1.0 (credit attribution)"},
+            allow_redirects=True,
+        )
+        html = resp.text
+    except Exception:
+        return "", platform
+    # 1. JSON-LD: look for creator / author / contributor
+    for ld_m in re.finditer(
+        r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+        html, re.S | re.I,
+    ):
+        try:
+            items = _json.loads(ld_m.group(1))
+            if not isinstance(items, list):
+                items = [items]
+            for item in items:
+                for key in ("creator", "author", "contributor"):
+                    c = item.get(key)
+                    if isinstance(c, dict):
+                        name = (c.get("name") or "").strip()
+                        if name:
+                            return name, platform
+                    elif isinstance(c, str) and c.strip():
+                        return c.strip(), platform
+        except Exception:
+            continue
+    # 2. Shutterstock: contributor link /g/username
+    if "shutterstock" in domain:
+        m = re.search(r'shutterstock\.com/g/([A-Za-z0-9_.%-]+)', html)
+        if m:
+            name = m.group(1).replace("+", " ").replace("_", " ").replace("%20", " ").title()
+            return name, platform
+    # 3. Unsplash: "by Photographer Name" in title
+    if "unsplash" in domain:
+        m = re.search(r'<title[^>]*>[^<]*by\s+([A-Z][a-zA-Z\s\-\.]+?)\s*[|\-–]', html)
+        if m:
+            return m.group(1).strip(), platform
+    # 4. Open Graph / meta author
+    m = re.search(
+        r'<meta[^>]+(?:name|property)=["\'](?:author|article:author)["\'][^>]+'
+        r'content=["\']([^"\']{2,80})["\']',
+        html, re.I,
+    )
+    if m:
+        return m.group(1).strip(), platform
+    return "", platform
+
+
 def cd_body_image_credit_hrefs_by_src_key(ghtml: str) -> dict[str, str]:
     """
     For each distinct ``<img src>`` in the Doc export, record the first wrapping ``<a href=https…>``
@@ -2944,7 +3045,7 @@ def refine_focus_keyword_for_content(
         kw = compact_focus_keyword(raw.strip().lower(), max_words=2, max_len=36)
         if kw in candidate_set:
             sc = focus_keyword_content_score(kw, plain_body, title=title)
-            if sc >= 80.0:
+            if sc >= 90.0:
                 print(f"[focus-kw] Claude→{kw!r} score={sc:.0f} ✅")
                 return kw
             print(f"[focus-kw] Claude→{kw!r} score={sc:.0f} <80 — falling back to score")
@@ -5609,14 +5710,19 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
             if _doc_img_credits:
                 _href_m = re.search(r'href="([^"]+)"', _doc_img_credits)
                 if _href_m:
-                    from urllib.parse import urlparse as _urlparse
-                    _src_url = _href_m.group(1)
-                    _domain = _urlparse(_src_url).netloc.lstrip("www.")
-                    _pg_ok, _pg_title = cd_fetch_credit_page_rights_and_title(_src_url)
-                    _label = f"{_pg_title} via {_domain}".strip() if _pg_title else f"via {_domain}"
-                    prov_url = _src_url
+                    _raw_url = _href_m.group(1)
+                    _real_url = _unwrap_google_redirect_url(_raw_url)
+                    _photographer, _platform = _extract_platform_photographer(_real_url)
+                    if _photographer:
+                        _label = f"{_photographer} via {_platform}"
+                    elif _platform:
+                        _label = f"via {_platform}"
+                    else:
+                        from urllib.parse import urlparse as _urlparse
+                        _label = f"via {_urlparse(_real_url).netloc.lstrip('www.')}"
+                    prov_url = _real_url
                     prov_label = _label
-                    print(f"[cite] Image-source link in Doc → {_src_url!r}, label={_label!r}")
+                    print(f"[cite] Image-source → {_real_url!r}, credit={_label!r}")
 
         hero_img, social_img = build_resized_pair_from_pil(site, pil)
         p_name = prov_label
