@@ -2343,6 +2343,83 @@ def _generate_meta_from_body(body_plain: str, title: str) -> str:
         return ensure_meta_description_length("", excerpt)
 
 
+def claude_strip_doc_top_editor_lines(
+    body_html: str,
+) -> Tuple[str, Optional[str], Optional[str], Optional[str], Optional[str]]:
+    """
+    Scans the first 1000 plain-text characters of the body for SEO metadata labels
+    and editor instructions that are not article content, then strips them from the HTML.
+    Returns (cleaned_body_html, seo_title, meta_description, focus_keyword, category).
+    All returned metadata fields are None when Claude found nothing.
+    """
+    if not body_html:
+        return body_html, None, None, None, None
+
+    soup = BeautifulSoup(body_html, "html.parser")
+    plain_text = soup.get_text("\n", strip=True)[:1000]
+    if not plain_text.strip():
+        return body_html, None, None, None, None
+
+    system = (
+        "You are reviewing the top of a Google Doc before publishing to WordPress. "
+        "Identify and return as JSON: "
+        "1) seo_title, meta_description, focus_keyword, category — any SEO metadata labels written as plain text. "
+        "2) editor_instructions — any lines that are editorial notes, instructions, or directives to the publisher "
+        "rather than article content (examples: formatting notes, word counts, client instructions, revision notes, "
+        "metadata labels in any language). Return the exact text of each line to strip. "
+        "Return null for anything not found. "
+        "Respond with valid JSON only, no markdown fences, no explanation."
+    )
+    user = f"Google Doc top (first 1000 characters):\n\n{plain_text}"
+
+    try:
+        raw = _anthropic_messages(system, user, temperature=0.1)
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw)
+            raw = re.sub(r"\n?```$", "", raw.strip())
+        result = json.loads(raw.strip())
+    except Exception as exc:
+        print(f"[2b] Doc-top Claude clean failed ({exc!r}) — skipping")
+        return body_html, None, None, None, None
+
+    doc_seo_title = (result.get("seo_title") or "").strip() or None
+    doc_meta = (result.get("meta_description") or "").strip() or None
+    doc_focus = (result.get("focus_keyword") or "").strip() or None
+    doc_category = (result.get("category") or "").strip() or None
+    lines_to_strip: List[str] = list(result.get("editor_instructions") or [])
+
+    # Also strip any element whose text exactly matches an extracted metadata value,
+    # since those values were read from plain-text label lines in the doc.
+    for val in filter(None, [doc_seo_title, doc_meta, doc_focus, doc_category]):
+        lines_to_strip.append(val)
+
+    strip_set = {s.strip() for s in lines_to_strip if s and s.strip()}
+
+    if not strip_set:
+        print("[2b] Doc-top Claude clean: no editor/metadata lines found.")
+        return body_html, doc_seo_title, doc_meta, doc_focus, doc_category
+
+    soup2 = BeautifulSoup(body_html, "html.parser")
+    removed = 0
+    for elem in list(soup2.find_all(["p", "h1", "h2", "h3", "h4", "h5", "h6", "div"])):
+        if elem.get_text(" ", strip=True) in strip_set:
+            elem.decompose()
+            removed += 1
+
+    print(f"[2b] Doc-top Claude clean: stripped {removed} line(s) from body.")
+    if doc_seo_title:
+        print(f"     doc seo_title: {doc_seo_title!r}")
+    if doc_meta:
+        print(f"     doc meta_description: {doc_meta!r}")
+    if doc_focus:
+        print(f"     doc focus_keyword: {doc_focus!r}")
+    if doc_category:
+        print(f"     doc category: {doc_category!r}")
+
+    return str(soup2), doc_seo_title, doc_meta, doc_focus, doc_category
+
+
 def hero_social_alt_for_cd(
     *,
     planner_alt: str,
@@ -5138,6 +5215,21 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     print("[2a] Article body from Google Doc HTML export (Claude article_body_html ignored).")
     manual_flags.append("article_body_source:google_doc_export")
     body = extract_google_doc_body_inner_html(ghtml)
+
+    print("[2b] Claude doc-top clean: scanning first 1000 chars for editor notes / metadata labels…")
+    body, _doc_seo_title, _doc_meta, _doc_focus, _doc_category = claude_strip_doc_top_editor_lines(body)
+    if _doc_seo_title:
+        seo_title = _doc_seo_title
+        manual_flags.append("doc_seo_title_override")
+    if _doc_meta:
+        meta = _doc_meta[:160]
+        manual_flags.append("doc_meta_description_override")
+    if _doc_focus and not focus:
+        focus = _doc_focus
+        manual_flags.append("doc_focus_keyword_override")
+    if _doc_category and not cat_hint:
+        cat_hint = _doc_category
+
     if client_src and site["key"] == "cd":
         _hero_src_strip = client_src.strip()
         _bsoup = BeautifulSoup(body, "html.parser")
