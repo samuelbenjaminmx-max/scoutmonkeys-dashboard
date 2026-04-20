@@ -2911,19 +2911,51 @@ def refine_focus_keyword_for_content(
     topic_slug: str,
 ) -> str:
     """
-    Score every individual word and 2-word phrase from the H1 title against the article body
-    using focus_keyword_content_score; pick the highest-scoring result. No Claude call.
+    1. Build candidates from H1 title words/phrases (stopwords + prefixes excluded).
+    2. Ask Claude to pick the most specific, searchable term from that candidate list.
+    3. If Claude's pick scores ≥80 against the body, use it.
+    4. Otherwise fall back to the highest-scoring title candidate by score.
+    Never returns a word that wasn't in the title candidates.
     """
     plain_body = re.sub(r"<[^>]+>", " ", body or doc_html or "")
     plain_body = re.sub(r"\s+", " ", plain_body).strip()
     candidates = cd_title_focus_keyword_candidates(title)
-    if candidates:
-        kw = _cd_pick_focus_keyword_by_score(candidates, plain_body, title)
-        if kw:
-            print(f"[focus-kw] Title-scored keyword: {kw!r}")
-            return kw
-    fallback = compact_focus_keyword((focus or topic_slug).replace("-", " "), max_words=2, max_len=36)
-    return _best_scoring_keyword_variant(fallback, plain_body, title) if fallback else (fallback or "")
+    if not candidates:
+        fallback = compact_focus_keyword((focus or topic_slug).replace("-", " "), max_words=2, max_len=36)
+        return fallback or ""
+
+    candidate_set = set(candidates)
+    candidates_str = ", ".join(f'"{c}"' for c in candidates)
+    user_msg = (
+        f'Article title: {(title or "").strip()}\n\n'
+        f"Candidates (from the title only): {candidates_str}\n\n"
+        "Return only one keyword from the list above — nothing else."
+    )
+    try:
+        raw = _anthropic_messages(
+            "You are an SEO editor. From this list of words and phrases taken from the article "
+            "title, pick the single best focus keyword — the most specific, meaningful, searchable "
+            "term a real person would type into Google to find this article. "
+            "Never pick prefixes, generic words, or partial words. "
+            "You must return exactly one item from the provided list, nothing else.",
+            user_msg,
+            temperature=0.0,
+        )
+        kw = compact_focus_keyword(raw.strip().lower(), max_words=2, max_len=36)
+        if kw in candidate_set:
+            sc = focus_keyword_content_score(kw, plain_body, title=title)
+            if sc >= 80.0:
+                print(f"[focus-kw] Claude→{kw!r} score={sc:.0f} ✅")
+                return kw
+            print(f"[focus-kw] Claude→{kw!r} score={sc:.0f} <80 — falling back to score")
+        else:
+            print(f"[focus-kw] Claude returned {raw.strip()!r} not in candidates — ignoring")
+    except Exception as exc:
+        print(f"[focus-kw] Claude call failed ({exc!r}) — falling back to score")
+
+    kw = _cd_pick_focus_keyword_by_score(candidates, plain_body, title)
+    print(f"[focus-kw] Score fallback: {kw!r}")
+    return kw
 
 
 def derive_meta_from_gdoc_first_paragraph(ghtml: str, max_len: int = 160) -> str:
