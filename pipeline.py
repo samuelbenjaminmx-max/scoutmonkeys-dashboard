@@ -3950,6 +3950,11 @@ def verify_post(
     pre_tail = _html_before_machine_tail(c)
     sponsored_links_ok, sponsored_note = verify_sponsored_body_links(pre_tail)
 
+    # Single-attachment mode: Pexels-only articles upload one image for both
+    # featured_media and AIOSEO OG. Skip dimension/title checks that assume two
+    # separate attachments.
+    single_att = (hero_id == social_id)
+
     checks: List[Tuple[str, bool]] = []
 
     def chk(label: str, ok: bool, note: str = "") -> None:
@@ -4034,7 +4039,7 @@ def verify_post(
 
     sw = int((soc.get("media_details") or {}).get("width") or 0)
     sh = int((soc.get("media_details") or {}).get("height") or 0)
-    if site.get("key") == "cd":
+    if site.get("key") == "cd" and not single_att:
         soc_ok = sw == site["social_w"] and sh == site["social_h"]
         soc_note = f"{sw}×{sh}"
         if not soc_ok:
@@ -4078,11 +4083,18 @@ def verify_post(
 
     st = soc.get("title") or {}
     s_title = st.get("raw") or st.get("rendered") or ""
-    chk(
-        f"Social title ({prefix}-...-social)",
-        s_title.startswith(prefix + "-") and s_title.endswith("-social"),
-        f"'{s_title}'",
-    )
+    if single_att:
+        chk(
+            f"Single-attachment: hero used as social/OG",
+            h_title.startswith(prefix + "-") and h_title.endswith("-hero"),
+            f"'{h_title}' (hero=social)",
+        )
+    else:
+        chk(
+            f"Social title ({prefix}-...-social)",
+            s_title.startswith(prefix + "-") and s_title.endswith("-social"),
+            f"'{s_title}'",
+        )
 
     s_alt = soc.get("alt_text") or ""
     if site.get("key") == "cd":
@@ -4121,11 +4133,21 @@ def verify_post(
         og_pick = og or og_cd
         og_b = _normalize_wp_media_basename(og_pick)
         soc_b = _normalize_wp_media_basename(s_url)
-        chk(
-            "OG / custom image URL basename is the social file (not hero)",
-            bool(og_pick) and og_b == soc_b and "-social" in og_b and "-hero" not in og_b,
-            f"{og_b!r} vs {soc_b!r}",
-        )
+        if single_att:
+            # Hero is the OG image — verify OG URL matches the hero attachment
+            h_url = (hero.get("source_url") or "").strip()
+            h_b = _normalize_wp_media_basename(h_url)
+            chk(
+                "OG image set and matches hero (single-attachment mode)",
+                bool(og_pick) and og_b == h_b,
+                f"{og_b!r} vs hero {h_b!r}",
+            )
+        else:
+            chk(
+                "OG / custom image URL basename is the social file (not hero)",
+                bool(og_pick) and og_b == soc_b and "-social" in og_b and "-hero" not in og_b,
+                f"{og_b!r} vs {soc_b!r}",
+            )
     if site.get("key") == "cd":
         og_type = (curp.get("og_image_type") or "").strip().lower()
         chk(
@@ -4762,7 +4784,11 @@ def remediate_latest_cd_draft() -> dict:
     sid = find_social_attachment_by_title(site, slug, hero_id)
     regen_social = False
     if not sid:
-        regen_social = True
+        # No separate social attachment — this post was created in single-attachment
+        # mode (Pexels-only). Reuse the hero as social/OG; no re-upload needed.
+        sid = hero_id
+        social_url = hero_url
+        print(f"[remediate] No separate social found — reusing hero (id={hero_id}) as social/OG")
     else:
         _rsoc3 = requests.get(
             f"{wp}/wp-json/wp/v2/media/{int(sid)}?context=edit",
@@ -4851,18 +4877,22 @@ def remediate_latest_cd_draft() -> dict:
             break
         social_url = (sm.get("source_url") or "").strip()
         actions.append(f"reuploaded social media id={sid} {site['social_w']}×{site['social_h']}")
-    else:
-        _rsoc2 = requests.get(
-            f"{wp}/wp-json/wp/v2/media/{int(sid)}?context=edit",
-            auth=auth,
-            timeout=30,
-        )
-        _rsoc2.raise_for_status()
-        soc = _rsoc2.json()
-        assert_cd_social_attachment_stored_dimensions(
-            site, soc, context="remediate existing social attachment"
-        )
-        social_url = (soc.get("source_url") or "").strip()
+    elif not regen_social:
+        if int(sid) == hero_id:
+            # Single-attachment mode — social_url already set above; no assertion needed
+            pass
+        else:
+            _rsoc2 = requests.get(
+                f"{wp}/wp-json/wp/v2/media/{int(sid)}?context=edit",
+                auth=auth,
+                timeout=30,
+            )
+            _rsoc2.raise_for_status()
+            soc = _rsoc2.json()
+            assert_cd_social_attachment_stored_dimensions(
+                site, soc, context="remediate existing social attachment"
+            )
+            social_url = (soc.get("source_url") or "").strip()
 
     if not social_url:
         raise RuntimeError("Could not resolve social image URL for AIOSEO.")
@@ -5304,51 +5334,61 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
     hero_url = hero_media.get("source_url") or ""
     print(f"[img-url] HERO src: {hero_url}")
 
-    wp_u, auth_u = wp_auth(site)
-    social_hdr = {"X-CD-Pipeline-Social": "1"}
-    social_attempts = [True, False] if use_png_social else [False]
-    social_media: dict = {}
-    social_id = 0
-    for att_i, try_png in enumerate(social_attempts):
-        if att_i > 0:
-            print(
-                "[warn] Social PNG was not kept at 1920×1400 on the server — "
-                "deleting that attachment and retrying as JPEG."
+    if used_client_hero:
+        # Client image: upload a separate social crop so the OG image is the
+        # correct 1920×1400 and keeps a distinct attachment title.
+        wp_u, auth_u = wp_auth(site)
+        social_hdr = {"X-CD-Pipeline-Social": "1"}
+        social_attempts = [True, False] if use_png_social else [False]
+        social_media: dict = {}
+        social_id = 0
+        for att_i, try_png in enumerate(social_attempts):
+            if att_i > 0:
+                print(
+                    "[warn] Social PNG was not kept at 1920×1400 on the server — "
+                    "deleting that attachment and retrying as JPEG."
+                )
+                cd_delete_wp_media_attachment(site, social_id)
+            social_fn = f"{prefix}-{slug}-social.png" if try_png else f"{prefix}-{slug}-social.jpg"
+            print(f"[5] Uploading social {social_fn}…")
+            social_media = wp_upload_image(
+                site,
+                social_img,
+                social_fn,
+                f"{prefix}-{slug}-social",
+                alt,
+                cap,
+                image_format="PNG" if try_png else "JPEG",
+                jpeg_quality=96,
+                http_headers=social_hdr,
             )
-            cd_delete_wp_media_attachment(site, social_id)
-        social_fn = f"{prefix}-{slug}-social.png" if try_png else f"{prefix}-{slug}-social.jpg"
-        print(f"[5] Uploading social {social_fn}…")
-        social_media = wp_upload_image(
-            site,
-            social_img,
-            social_fn,
-            f"{prefix}-{slug}-social",
-            alt,
-            cap,
-            image_format="PNG" if try_png else "JPEG",
-            jpeg_quality=96,
-            http_headers=social_hdr,
-        )
-        social_id = int(social_media["id"])
-        time.sleep(0.6)
-        r_sv = requests.get(
-            f"{wp_u}/wp-json/wp/v2/media/{social_id}?context=edit",
-            auth=auth_u,
-            timeout=30,
-        )
-        r_sv.raise_for_status()
-        social_media = r_sv.json()
-        try:
-            assert_cd_social_attachment_stored_dimensions(
-                site, social_media, context="pipeline social upload"
+            social_id = int(social_media["id"])
+            time.sleep(0.6)
+            r_sv = requests.get(
+                f"{wp_u}/wp-json/wp/v2/media/{social_id}?context=edit",
+                auth=auth_u,
+                timeout=30,
             )
-        except RuntimeError:
-            if att_i >= len(social_attempts) - 1:
-                raise
-            continue
-        break
-    social_url = social_media.get("source_url") or ""
-    print(f"[img-url] SOCIAL src: {social_url}")
+            r_sv.raise_for_status()
+            social_media = r_sv.json()
+            try:
+                assert_cd_social_attachment_stored_dimensions(
+                    site, social_media, context="pipeline social upload"
+                )
+            except RuntimeError:
+                if att_i >= len(social_attempts) - 1:
+                    raise
+                continue
+            break
+        social_url = social_media.get("source_url") or ""
+        print(f"[img-url] SOCIAL src: {social_url}")
+    else:
+        # Pexels-only: the hero IS the OG image — one download, one upload, one ID.
+        # No second upload; social_id == hero_id so AIOSEO OG points to the hero attachment.
+        social_id = hero_id
+        social_url = hero_url
+        print(f"[5] Pexels hero reused as social/OG — id={hero_id}, no second upload")
+        print(f"[img-url] SOCIAL src: {social_url}")
 
     if site["key"] == "cd" and (hero_url or "").strip():
         _hu = hero_url.strip()
