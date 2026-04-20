@@ -19,6 +19,7 @@ from pipeline import (
     refine_focus_keyword_for_content,
     cd_guaranteed_hero_strip,
     cd_extract_image_source_credits,
+    build_cd_aioseo_seo_title,
 )
 
 
@@ -263,3 +264,57 @@ class TestImageSourceCredits:
         assert credits.count("<p><em>") == 2, "Expected 2 credit paragraphs"
         assert "unsplash.com" in credits
         assert "pexels.com" in credits
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Rule 6 — AIOSEO SEO title cuts at natural phrase boundary, never mid-phrase
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestAioseoSeoTitlePhraseBoundary:
+    SUF = " | Cultural Daily"
+
+    def test_short_title_returned_verbatim_with_suffix(self):
+        title = "Visit Gatlinburg This Fall"
+        result = build_cd_aioseo_seo_title(title, "")
+        assert result == title + self.SUF
+        assert len(result) <= 60
+
+    def test_colon_cut_preferred_over_mid_phrase_clip(self):
+        # Budget = 43. "Culinary Trails" (15) fits; nothing after the colon fits cleanly.
+        title = "Culinary Trails: Smart Ways to Weave Food into Your Travel Plans"
+        result = build_cd_aioseo_seo_title(title, "")
+        assert result.endswith(self.SUF), f"Missing suffix: {result!r}"
+        assert len(result) <= 60, f"Exceeds 60 chars: {result!r}"
+        # Must cut at the colon — "Culinary Trails" is the only natural boundary
+        assert "Culinary Trails" in result
+        assert "Weave Food" not in result, f"Mid-phrase 'Weave Food' leaked into: {result!r}"
+
+    def test_longest_comma_cut_chosen(self):
+        # "A, B, C: D" — colon cut gives "A, B, C" (7 chars); comma cuts give "A" (1) and "A, B" (4)
+        # Longest that fits: "A, B, C" via colon split
+        title = "Casino Bonuses, Free Spins, and Loyalty Perks: The Complete Guide"
+        result = build_cd_aioseo_seo_title(title, "")
+        assert result.endswith(self.SUF)
+        assert len(result) <= 60
+        # The colon prefix "Casino Bonuses, Free Spins, and Loyalty Perks" = 46 chars > budget 43
+        # The comma prefix "Casino Bonuses, Free Spins, and Loyalty Perks" is also 46 — too long
+        # Next comma: "Casino Bonuses, Free Spins" = 26 chars — fits
+        # So result must not contain anything from ": The Complete Guide"
+        assert "Complete Guide" not in result
+
+    def test_result_never_exceeds_60_chars(self):
+        for title in [
+            "A Very Very Very Very Very Very Very Very Very Very Very Long Title That Exceeds Budget",
+            "No Colon Or Comma But Still Way Too Long For Sixty Characters Total With Suffix",
+            "Short",
+        ]:
+            with patch("pipeline._anthropic_messages", return_value="Short fallback"):
+                result = build_cd_aioseo_seo_title(title, "")
+            assert len(result) <= 60, f"Exceeded 60 for {title!r}: {result!r}"
+
+    def test_full_h1_under_44_chars_uses_full_title(self):
+        # 43 + 17 = 60 exactly
+        title = "A" * 43
+        result = build_cd_aioseo_seo_title(title, "")
+        assert result == title + self.SUF
+        assert len(result) == 60

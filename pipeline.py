@@ -2523,21 +2523,38 @@ def build_cd_aioseo_seo_title(full_h1: str, planner_hint: str) -> str:
     """
     AIOSEO title ≤60 chars, always ending with ' | Cultural Daily' when possible.
 
-    Rule: build '[H1] | Cultural Daily' first.
-    - If the full string is ≤60 chars → return it as-is (mandatory; never omit suffix).
-    - If it exceeds 60 chars → shorten the H1 portion (Claude, then word-safe clip)
-      until '[shortened] | Cultural Daily' fits, or drop the suffix as last resort.
+    Shortening priority:
+    1. Full H1 + suffix fits → return as-is.
+    2. Natural cut at longest prefix ending at ':' or ',' that fits the budget.
+    3. Claude picks a natural phrase boundary cut (do-not-rewrite prompt).
+    4. Word-safe clip as last resort.
     """
     lim = 60
     suf = CD_SEO_TITLE_SUFFIX          # " | Cultural Daily" — 17 chars
     t = unicodedata.normalize("NFKC", (full_h1 or "").strip())
 
-    # Fast path: full title + suffix fits — always mandatory.
+    # Fast path: full title + suffix fits.
     if len(t) + len(suf) <= lim:
         return t + suf
 
-    # Need to shorten the H1 so '[shortened] | Cultural Daily' fits within 60.
-    budget = lim - len(suf)            # max chars available for the H1 portion
+    budget = lim - len(suf)            # max chars for H1 portion (43 when suffix is 17)
+
+    def _natural_cuts(text: str) -> list:
+        """All prefixes that end at a ':' or ',' and fit within budget, longest first."""
+        seen: set = set()
+        hits: list = []
+        for sep in (":", ","):
+            parts = text.split(sep)
+            for i in range(1, len(parts)):
+                c = sep.join(parts[:i]).rstrip(" :,-")
+                if 5 <= len(c) <= budget and c not in seen:
+                    seen.add(c)
+                    hits.append(c)
+        return sorted(hits, key=len, reverse=True)
+
+    natural = _natural_cuts(t)
+    if natural:
+        return natural[0] + suf
 
     def _word_clip(text: str, max_chars: int) -> str:
         chunk = text[:max_chars]
@@ -2547,11 +2564,12 @@ def build_cd_aioseo_seo_title(full_h1: str, planner_hint: str) -> str:
 
     try:
         raw = _anthropic_messages(
-            f"Shorten this title to fit within {budget} characters. "
-            "Stay as faithful as possible to the original wording — only remove words, "
-            "do not rephrase or rewrite. Return only the shortened title, nothing else.",
+            f"Shorten this title to ≤{budget} characters. "
+            "Cut at a natural phrase boundary — after a colon, comma, or at the end of a complete thought. "
+            "Do NOT rewrite or rephrase — only drop trailing words. "
+            "Return only the shortened title, nothing else.",
             t,
-            temperature=0.2,
+            temperature=0.1,
         )
         candidate = re.sub(r"\s+", " ", raw.strip()).strip("\"'")
         words = candidate.split()
