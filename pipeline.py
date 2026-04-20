@@ -2156,10 +2156,9 @@ def _cd_apply_figure_center_styles(fig, img) -> None:
             cls.append(token)
     fig["class"] = cls
     fig["align"] = "center"
-    # Hard-set: constrain body images to 700 px wide, centred. Replaces any prior style.
-    fig["style"] = "max-width:700px;margin:0 auto;display:block;text-align:center"
-    # Strip all GDoc inline dimensions/transforms; set clean responsive style.
-    img["style"] = "width:100%;height:auto;display:block"
+    # !important overrides theme CSS that stretches images to full width.
+    fig["style"] = "max-width:700px !important;width:700px !important;margin:0 auto;display:block;text-align:center"
+    img["style"] = "max-width:100% !important;width:100% !important;height:auto;display:block"
     icls = img.get("class") or []
     if isinstance(icls, str):
         icls = [c for c in icls.split() if c]
