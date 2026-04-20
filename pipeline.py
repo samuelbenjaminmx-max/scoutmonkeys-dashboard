@@ -2582,61 +2582,31 @@ def refine_focus_keyword_for_content(
     title: str,
     topic_slug: str,
 ) -> str:
-    """
-    Short **1–2 word** focus keyphrase: title + topic tokens, plus high-signal words that
-    **actually appear in the body** (e.g. ``gambling`` for casino / mobile-wager articles).
-    Chooses the highest **content relevance score** among candidates clearing the CD QA bar.
-    """
-    hay = f"{body}\n{doc_html}\n{title}"
-    hay_low = hay.lower()
-    ti = unicodedata.normalize("NFKC", (title or "")).strip()
-    candidates: List[str] = []
-    for w in _CD_BODY_BOOST_KEYWORDS:
-        if len(w) < 4:
-            continue
-        if re.search(rf"\b{re.escape(w)}\b", hay_low):
-            candidates.append(w)
-    candidates.extend(cd_title_focus_keyword_candidates(ti))
-    base = compact_focus_keyword(focus, max_words=2, max_len=36)
-    if not base:
-        base = compact_focus_keyword(topic_slug.replace("-", " "), max_words=2, max_len=36)
-    if base:
-        candidates.append(base)
-        ws = base.split()
-        for n in range(min(len(ws), 2), 0, -1):
-            candidates.append(" ".join(ws[:n]))
-        if ws:
-            candidates.append(ws[0])
-    candidates.append(compact_focus_keyword(topic_slug.replace("-", " "), max_words=2, max_len=36))
-    chosen = _cd_pick_focus_keyword_by_score(candidates, hay, ti, target=82.0)
-    if chosen:
-        sc = focus_keyword_content_score(chosen, hay, title=ti)
-        if sc >= 81.99:
-            return chosen
-
-    seen: set[str] = {chosen} if chosen else set()
-    for w in topic_slug.replace("-", " ").split():
-        t = compact_focus_keyword(w, max_words=1, max_len=24)
-        if not t or t in seen:
-            continue
-        seen.add(t)
-        sc = focus_keyword_content_score(t, hay, title=ti)
-        if sc >= 82.0:
-            return t
-    for w in ("culture", "food", "health", "film", "music", "art", "books"):
-        if w in seen:
-            continue
-        sc = focus_keyword_content_score(w, hay, title=ti)
-        if sc >= 82.0:
-            return w
-    for w in re.findall(r"[a-z][a-z'-]{3,}", (topic_slug + " " + ti).lower()):
-        if w in seen or len(w) < 4:
-            continue
-        seen.add(w)
-        sc = focus_keyword_content_score(w, hay, title=ti)
-        if sc >= 82.0:
-            return w
-    return chosen or compact_focus_keyword(topic_slug.replace("-", " "), max_words=2, max_len=36)
+    """Ask Claude for the single best SEO focus keyword / 2-word phrase for this article."""
+    plain_body = re.sub(r"<[^>]+>", " ", body or doc_html or "")
+    plain_body = re.sub(r"\s+", " ", plain_body).strip()
+    excerpt = plain_body[:500]
+    user_msg = (
+        f"Title: {(title or '').strip()}\n\n"
+        f"Body excerpt: {excerpt}\n\n"
+        "What is the single best SEO focus keyword or 2-word phrase for this article? "
+        "Return ONLY the keyword or phrase, nothing else — no punctuation, no explanation. "
+        "Pick the most specific topical term. "
+        "Never return generic words like: mistakes, tips, ways, avoid, best, top, guide, things, how."
+    )
+    try:
+        raw = _anthropic_messages(
+            "You are an SEO specialist. Output only the focus keyword — one word or two words maximum.",
+            user_msg,
+            temperature=0.0,
+        )
+        kw = compact_focus_keyword(raw.strip().lower(), max_words=2, max_len=36)
+        if kw:
+            print(f"[focus-kw] Claude chose: {kw!r}")
+            return kw
+    except Exception as exc:
+        print(f"[focus-kw] Claude call failed ({exc!r}); falling back to topic slug")
+    return compact_focus_keyword((focus or topic_slug).replace("-", " "), max_words=2, max_len=36)
 
 
 def derive_meta_from_gdoc_first_paragraph(ghtml: str, max_len: int = 160) -> str:
