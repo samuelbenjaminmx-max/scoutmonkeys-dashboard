@@ -2525,61 +2525,29 @@ def cd_format_body_inline_images(html: str, *, post_title: str = "", site: dict)
 
 def build_cd_aioseo_seo_title(full_h1: str, planner_hint: str) -> str:
     """
-    AIOSEO title ≤60 chars, always ending with ' | Cultural Daily' when possible.
+    AIOSEO title ≤60 chars, always ending with ' | Cultural Daily'.
 
-    Shortening priority:
-    1. Full H1 + suffix fits → return as-is.
-    2. Prefix before the first ':' or structural dash (` — ` / ` - `) + suffix fits → use it.
-    3. Claude finds the best natural cut (phrase boundary, no rewrites).
-    4. Word-safe clip as last resort.
+    Rule: try the full H1 first. If it doesn't fit, drop words from the END
+    one at a time until the H1 portion is ≤43 chars (43 + 17 = 60 total).
+    Never rewrites, rearranges, or changes words — only removes from the end.
     """
     lim = 60
     suf = CD_SEO_TITLE_SUFFIX          # " | Cultural Daily" — 17 chars
     t = unicodedata.normalize("NFKC", (full_h1 or "").strip())
 
-    # Step 1: full title fits.
     if len(t) + len(suf) <= lim:
         return t + suf
 
-    budget = lim - len(suf)            # max chars for H1 portion (43 when suffix is 17)
+    budget = lim - len(suf)            # 43 chars for the H1 portion
+    words = t.split()
+    while words and len(" ".join(words)) > budget:
+        words.pop()
 
-    # Step 2: prefix before the first structural delimiter (colon or spaced dash).
-    _delim = re.search(r":|(?<=\S)\s+[-—]\s+(?=\S)", t)
-    if _delim:
-        prefix = t[: _delim.start()].rstrip()
-        if len(prefix) >= 5 and len(prefix) + len(suf) <= lim:
-            return prefix + suf
-
-    def _word_clip(text: str, max_chars: int) -> str:
-        chunk = text[:max_chars]
-        sp = chunk.rfind(" ") if not chunk[-1].isspace() else max_chars
-        base = chunk[:sp].rstrip() if sp >= 10 else re.sub(r"\W+$", "", chunk).strip()
-        return base or text[:max_chars].rstrip()
-
-    # Step 3: Claude picks the best natural cut.
-    try:
-        raw = _anthropic_messages(
-            f"Shorten this title to ≤{budget} characters. "
-            "Cut at a natural phrase boundary — after a complete thought, clause, or idea. "
-            "Do NOT rewrite or rephrase — only drop trailing words. "
-            "Return only the shortened title, nothing else.",
-            t,
-            temperature=0.1,
-        )
-        candidate = re.sub(r"\s+", " ", raw.strip()).strip("\"'")
-        words = candidate.split()
-        while words and len(" ".join(words)) > budget:
-            words.pop()
-        candidate = " ".join(words)
-        if candidate and 10 <= len(candidate) <= budget:
-            return candidate + suf
-        print(f"[warn] build_cd_aioseo_seo_title: Claude returned unusable title ({len(candidate)} chars) — using word-safe clip")
-    except Exception as exc:
-        print(f"[warn] build_cd_aioseo_seo_title Claude call failed ({exc!r}) — using word-safe clip")
-
-    # Step 4: word-safe clip.
-    base = _word_clip(t, budget)
-    return (base + suf)[:lim].strip()
+    clipped = " ".join(words).rstrip(" :,-")
+    if clipped:
+        return clipped + suf
+    # Fallback: single very-long word — hard-clip at budget
+    return (t[:budget].rstrip() + suf)[:lim]
 
 
 def ensure_meta_description_length(meta: str, filler_plain: str) -> str:

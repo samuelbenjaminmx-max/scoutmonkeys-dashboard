@@ -270,51 +270,43 @@ class TestImageSourceCredits:
 # Rule 6 — AIOSEO SEO title cuts at natural phrase boundary, never mid-phrase
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestAioseoSeoTitlePhraseBoundary:
+class TestAioseoSeoTitleWordTrim:
     SUF = " | Cultural Daily"
 
-    def test_step1_short_title_returned_verbatim_with_suffix(self):
+    def test_short_title_returned_verbatim_with_suffix(self):
         title = "Visit Gatlinburg This Fall"
         result = build_cd_aioseo_seo_title(title, "")
         assert result == title + self.SUF
         assert len(result) <= 60
 
-    def test_step1_exactly_43_char_h1_uses_full_title(self):
-        # 43 + 17 = 60 exactly
+    def test_exactly_43_char_h1_uses_full_title(self):
         title = "A" * 43
         result = build_cd_aioseo_seo_title(title, "")
         assert result == title + self.SUF
         assert len(result) == 60
 
-    def test_step2_colon_cut_article_example(self):
-        # Exact article from the bug report. Prefix before first colon = "Culinary Trails" (15 chars).
-        # 15 + 17 = 32 ≤ 60 → step 2 fires, no Claude call needed.
+    def test_culinary_trails_drops_trailing_words(self):
+        # User-specified: drop from end until ≤43 chars.
+        # "Culinary Trails: Smart Ways to Weave Food" = 41 chars → fits.
         title = "Culinary Trails: Smart Ways to Weave Food into Your Travel Plans"
         result = build_cd_aioseo_seo_title(title, "")
-        assert result == "Culinary Trails" + self.SUF, f"Got: {result!r}"
-        assert "Weave Food" not in result
-
-    def test_step2_dash_cut(self):
-        # Spaced dash: prefix before " — " = "Best Casinos in Las Vegas" (25 chars).
-        title = "Best Casinos in Las Vegas — A Complete Guide to Winning"
-        result = build_cd_aioseo_seo_title(title, "")
-        assert result == "Best Casinos in Las Vegas" + self.SUF
+        assert result == "Culinary Trails: Smart Ways to Weave Food" + self.SUF, f"Got: {result!r}"
         assert len(result) <= 60
 
-    def test_step2_skipped_when_prefix_too_long(self):
-        # Colon prefix = 46 chars > budget 43 → step 2 fails, falls to Claude/clip.
-        title = "Casino Bonuses Free Spins and Loyalty Perks Here: The Complete Guide"
-        with patch("pipeline._anthropic_messages", return_value="Casino Bonuses Free Spins"):
-            result = build_cd_aioseo_seo_title(title, "")
+    def test_no_rewrite_words_preserved_verbatim(self):
+        # Words that remain must appear verbatim from the original H1.
+        title = "How to Choose the Right Roofing Contractor for Your Home Renovation Project"
+        result = build_cd_aioseo_seo_title(title, "")
         assert result.endswith(self.SUF)
         assert len(result) <= 60
-        assert "Complete Guide" not in result
+        h1_part = result[: -len(self.SUF)]
+        assert title.startswith(h1_part), f"Result not a prefix of H1: {result!r}"
 
     def test_result_never_exceeds_60_chars(self):
         for title in [
-            "A Very Very Very Very Very Very Very Very Very Very Very Long Title No Delimiter",
+            "A Very Very Very Very Very Very Very Very Very Very Very Long Title Here",
+            "OneVeryLongWordWithNoSpaces" * 3,
             "Short",
         ]:
-            with patch("pipeline._anthropic_messages", return_value="Short fallback"):
-                result = build_cd_aioseo_seo_title(title, "")
+            result = build_cd_aioseo_seo_title(title, "")
             assert len(result) <= 60, f"Exceeded 60 for {title!r}: {result!r}"
