@@ -3089,7 +3089,7 @@ def cd_delete_slug_prefix_media_attachments(site: dict, prefix: str, slug: str) 
     if site.get("key") != "cd":
         return []
     wp, auth = wp_auth(site)
-    search_prefixes = [f"{prefix}-{slug}-hero", f"{prefix}-{slug}-social"]
+    search_prefixes = [f"{prefix}-{slug}-hero", f"{prefix}-{slug}-social", f"{prefix}-{slug}-Insert"]
     deleted: List[int] = []
     for term in search_prefixes:
         r = requests.get(
@@ -3205,22 +3205,33 @@ def _normalize_wp_media_basename(url: str) -> str:
     return b
 
 
-def cd_insert_media_title(site: dict, slot: int) -> str:
-    """WordPress media title + basename stem for inline inserts: ``CD-Insert1``, ``CD-Insert2``, …"""
+def cd_insert_media_title(site: dict, slot: int, topic_slug: str = "") -> str:
+    """WordPress media title for inline inserts.
+    Slug-based when topic_slug is provided: ``CD-{slug}-Insert1``.
+    Falls back to generic ``CD-Insert1`` only when no slug is available."""
     pfx = (site.get("prefix") or "CD").strip() or "CD"
+    if topic_slug:
+        slug = re.sub(r"[^a-z0-9-]+", "-", topic_slug.lower()).strip("-")
+        return f"{pfx}-{slug}-Insert{int(slot)}"
     return f"{pfx}-Insert{int(slot)}"
 
 
-def _cd_insert_src_matches_slot_title(site: dict, src: str, slot: int) -> bool:
+def _cd_insert_src_matches_slot_title(site: dict, src: str, slot: int, topic_slug: str = "") -> bool:
     """True when ``src`` basename already matches this pipeline's insert naming (current or legacy)."""
     if slot < 1:
         return False
     base = _basename_media_path(src).lower()
-    cur = cd_insert_media_title(site, slot).lower()
-    if base.startswith(cur + ".jp"):
+    # Slug-based naming (current): CD-{slug}-Insert1.jpg
+    if topic_slug:
+        cur_slug = cd_insert_media_title(site, slot, topic_slug).lower()
+        if base.startswith(cur_slug + ".jp") or base.startswith(cur_slug + ".png"):
+            return True
+    # Generic naming (legacy): CD-Insert1.jpg
+    cur_gen = cd_insert_media_title(site, slot).lower()
+    if base.startswith(cur_gen + ".jp") or base.startswith(cur_gen + ".png"):
         return True
     pfx = (site.get("prefix") or "CD").strip().lower()
-    # Legacy: ``{prefix}-{topic}-insert-{n}.jpg``
+    # Oldest legacy: ``{prefix}-{topic}-insert-{n}.jpg``
     m = re.search(r"-insert-(\d+)\.jpe?g$", base, re.I)
     if m and pfx and base.startswith(pfx + "-"):
         try:
@@ -3255,7 +3266,7 @@ def cd_reupload_inline_body_images(
     """
     if not (body_html or "").strip():
         return body_html
-    _ = topic_slug  # retained for API compatibility; insert titles no longer embed the topic slug
+    # topic_slug is now used: insert titles are CD-{slug}-Insert1, CD-{slug}-Insert2, …
     soup = BeautifulSoup(body_html, "html.parser")
     changed = False
     slot = 0
@@ -3327,8 +3338,8 @@ def cd_reupload_inline_body_images(
             continue
         slot += 1
         pd_html, pd_plain = _maybe_pd_caption_html(src)
-        if _cd_insert_src_matches_slot_title(site, src, slot):
-            title_m = cd_insert_media_title(site, slot)
+        if _cd_insert_src_matches_slot_title(site, src, slot, topic_slug):
+            title_m = cd_insert_media_title(site, slot, topic_slug)
             alt0 = (img.get("alt") or img.get("title") or "").strip()
             new_alt = _cd_inline_alt_for_img(alt0, post_title, slot=slot, src_url=src)
             if (img.get("alt") or "") != new_alt:
@@ -3378,7 +3389,7 @@ def cd_reupload_inline_body_images(
             changed = True
         alt0 = (img.get("alt") or img.get("title") or "").strip()
         alt_f = _cd_inline_alt_for_img(alt0, post_title, slot=slot, src_url=src)
-        title_m = cd_insert_media_title(site, slot)
+        title_m = cd_insert_media_title(site, slot, topic_slug)
         fn = f"{title_m}.jpg"
         cap_for_wp = pd_plain if pd_plain else cap_txt
         try:
