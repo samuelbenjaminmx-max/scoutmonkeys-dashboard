@@ -1697,6 +1697,121 @@ def cd_promote_gdoc_heading_paragraphs(html: str) -> str:
     return str(soup)
 
 
+_IMAGE_SOURCE_LINK_TEXTS = frozenset(["image source", "source", "photo source"])
+
+
+def cd_extract_image_source_credits(html: str) -> Tuple[str, str]:
+    """
+    Find <a> tags in the body whose visible text is 'Image source', 'Source', or 'Photo source'
+    (case-insensitive). Extract the href URL, build a nofollow credit paragraph using the URL
+    domain, remove the containing <p> from the body, and return (modified_html, credits_html).
+
+    credits_html is a newline-joined block of
+    <p><em><a href="..." target="_blank" rel="nofollow noopener">Photo: via {domain}</a></em></p>
+    lines, or "" if none found.
+    """
+    if not (html or "").strip():
+        return html, ""
+    soup = BeautifulSoup(html, "html.parser")
+    credits: List[str] = []
+    for a in list(soup.find_all("a", href=True)):
+        txt = a.get_text(" ", strip=True).lower()
+        if txt not in _IMAGE_SOURCE_LINK_TEXTS:
+            continue
+        href = (a.get("href") or "").strip()
+        if not href or not href.startswith("http"):
+            continue
+        try:
+            from urllib.parse import urlparse
+            domain = urlparse(href).netloc.lstrip("www.")
+        except Exception:
+            domain = href
+        credits.append(
+            f'<p><em><a href="{href}" target="_blank" rel="nofollow noopener">'
+            f"Photo: via {domain}</a></em></p>"
+        )
+        parent = a.find_parent("p")
+        if parent:
+            parent.decompose()
+        else:
+            a.decompose()
+    credits_html = "\n".join(credits)
+    if credits:
+        print(f"[img-src] Extracted {len(credits)} image-source credit(s) from body.")
+    return str(soup), credits_html
+
+
+_SUBHEAD_CANDIDATE_MAX_CHARS = 90
+_SUBHEAD_CANDIDATE_MIN_CHARS = 5
+
+
+def cd_claude_promote_subheadings(html: str, *, title: str) -> str:
+    """
+    Use Claude to identify bold-only paragraphs or short standalone lines that are
+    subheadings, then wrap them in <h2> tags.
+    """
+    if not (html or "").strip():
+        return html
+    soup = BeautifulSoup(html, "html.parser")
+    candidates: List[Any] = []
+    candidate_indices: List[int] = []
+    all_ps = list(soup.find_all("p"))
+    for p in all_ps:
+        if p.find_parent(["li", "blockquote"]):
+            continue
+        if p.find("a") or p.find("img"):
+            continue
+        tx = p.get_text(" ", strip=True)
+        if len(tx) < _SUBHEAD_CANDIDATE_MIN_CHARS or len(tx) > _SUBHEAD_CANDIDATE_MAX_CHARS:
+            continue
+        if re.match(r"^photo\s*:", tx, re.I):
+            continue
+        children = [c for c in p.children if getattr(c, "name", None)]
+        is_bold_only = (
+            len(children) == 1
+            and children[0].name == "strong"
+            and not children[0].find("a")
+        )
+        is_short_standalone = len(tx) <= _SUBHEAD_CANDIDATE_MAX_CHARS
+        if is_bold_only or is_short_standalone:
+            candidates.append(p)
+            candidate_indices.append(all_ps.index(p))
+    if not candidates:
+        return str(soup)
+    numbered = "\n".join(f"{i}. {c.get_text(' ', strip=True)!r}" for i, c in enumerate(candidates))
+    system = (
+        "You are an HTML editor. Given candidate paragraphs from an article, "
+        "return a JSON array of zero-based indices of paragraphs that are section subheadings. "
+        "A subheading introduces a new section — it is a short label, not a sentence. "
+        "Return only the JSON array, nothing else."
+    )
+    user = f"Article title: {(title or '').strip()}\n\nCandidates:\n{numbered}"
+    try:
+        raw = _anthropic_messages(system, user, temperature=0.0)
+        import json as _json
+        match = re.search(r"\[.*?\]", raw, re.S)
+        if not match:
+            return str(soup)
+        indices = _json.loads(match.group())
+        promoted = 0
+        for idx in indices:
+            if not isinstance(idx, int) or idx < 0 or idx >= len(candidates):
+                continue
+            p = candidates[idx]
+            if not p.parent:
+                continue
+            h2 = soup.new_tag("h2")
+            for child in list(p.contents):
+                h2.append(child)
+            p.replace_with(h2)
+            promoted += 1
+        if promoted:
+            print(f"[2b-claude] Claude promoted {promoted} paragraph(s) to <h2> subheadings.")
+    except Exception as exc:
+        print(f"[warn] cd_claude_promote_subheadings failed ({exc!r}) — skipping")
+    return str(soup)
+
+
 _FOOTNOTE_DEF_ANCHOR_ID_RE = re.compile(r"^cmnt\d+$", re.I)
 _FOOTNOTE_DEF_ANCHOR_HREF_RE = re.compile(r"^#cmnt_ref\d+$", re.I)
 
@@ -2355,10 +2470,10 @@ def ensure_meta_description_length(meta: str, filler_plain: str) -> str:
     m = unicodedata.normalize("NFKC", _strip_ellipsis((meta or "").strip()))
     if _meta_has_boilerplate(m):
         m = ""
-    if len(m) > META_DESCRIPTION_MAX:
-        m = _clip_at_sentence_boundary(m, META_DESCRIPTION_MAX)
+    if len(m) > META_DESCRIPTION_MAX - 1:
+        m = _clip_at_sentence_boundary(m, META_DESCRIPTION_MAX - 1)
     if len(m) >= META_DESCRIPTION_MIN:
-        result = _strip_ellipsis(m[:META_DESCRIPTION_MAX])
+        result = _enforce_meta_period(_strip_ellipsis(m[:META_DESCRIPTION_MAX - 1]))
         if not _meta_has_boilerplate(result):
             return result
         m = ""
@@ -2371,11 +2486,11 @@ def ensure_meta_description_length(meta: str, filler_plain: str) -> str:
             if extra:
                 m = (m + " " + extra).strip()
     elif fill:
-        m = _clip_at_sentence_boundary(fill, META_DESCRIPTION_MAX)
+        m = _clip_at_sentence_boundary(fill, META_DESCRIPTION_MAX - 1)
     m = _strip_ellipsis(m)
     if _meta_has_boilerplate(m):
         m = m[: m.lower().find(next(p for p in _META_FORBIDDEN_PHRASES if p in m.lower()))].rstrip(" .,;")
-    return _enforce_meta_period(_strip_ellipsis(m[:META_DESCRIPTION_MAX]))
+    return _enforce_meta_period(_strip_ellipsis(m[:META_DESCRIPTION_MAX - 1]))
 
 
 def _generate_meta_from_body(body_plain: str, title: str) -> str:
@@ -2399,7 +2514,7 @@ def _generate_meta_from_body(body_plain: str, title: str) -> str:
     try:
         raw = _anthropic_messages(system, user, temperature=0.3)
         candidate = _enforce_meta_period(_strip_ellipsis(re.sub(r"\s+", " ", raw.strip())))
-        candidate = _clip_to_complete_sentence(candidate, META_DESCRIPTION_MAX)
+        candidate = _clip_to_complete_sentence(candidate, META_DESCRIPTION_MAX - 1)
         candidate = _enforce_meta_period(candidate)
         if not _meta_has_boilerplate(candidate) and META_DESCRIPTION_MIN <= len(candidate) <= META_DESCRIPTION_MAX:
             return candidate
@@ -2789,34 +2904,20 @@ def refine_focus_keyword_for_content(
     title: str,
     topic_slug: str,
 ) -> str:
-    """Ask Claude for the single best SEO focus keyword, then score-test it against the body."""
+    """
+    Score every individual word and 2-word phrase from the H1 title against the article body
+    using focus_keyword_content_score; pick the highest-scoring result. No Claude call.
+    """
     plain_body = re.sub(r"<[^>]+>", " ", body or doc_html or "")
     plain_body = re.sub(r"\s+", " ", plain_body).strip()
-    excerpt = plain_body[:500]
-    user_msg = (
-        f"Title: {(title or '').strip()}\n\n"
-        f"Body excerpt: {excerpt}\n\n"
-        "What is the single best ONE-word SEO focus keyword for this article? "
-        "Return only that one word, nothing else — no punctuation, no explanation. "
-        "Only use two words if the topic absolutely requires it (e.g. brand names, compound nouns like 'munchkin cat'). "
-        "Pick the most specific topical term. "
-        "Never return generic words like: mistakes, tips, ways, avoid, best, top, guide, things, how."
-    )
-    try:
-        raw = _anthropic_messages(
-            "You are an SEO specialist. Output only the focus keyword — prefer one word; use two only for brand names or compound nouns that cannot be reduced.",
-            user_msg,
-            temperature=0.0,
-        )
-        kw = compact_focus_keyword(raw.strip().lower(), max_words=2, max_len=36)
+    candidates = cd_title_focus_keyword_candidates(title)
+    if candidates:
+        kw = _cd_pick_focus_keyword_by_score(candidates, plain_body, title)
         if kw:
-            kw = _best_scoring_keyword_variant(kw, plain_body, title)
-            print(f"[focus-kw] Final keyword: {kw!r}")
+            print(f"[focus-kw] Title-scored keyword: {kw!r}")
             return kw
-    except Exception as exc:
-        print(f"[focus-kw] Claude call failed ({exc!r}); falling back to topic slug")
     fallback = compact_focus_keyword((focus or topic_slug).replace("-", " "), max_words=2, max_len=36)
-    return _best_scoring_keyword_variant(fallback, plain_body, title) if fallback else fallback
+    return _best_scoring_keyword_variant(fallback, plain_body, title) if fallback else (fallback or "")
 
 
 def derive_meta_from_gdoc_first_paragraph(ghtml: str, max_len: int = 160) -> str:
@@ -4950,12 +5051,19 @@ def remediate_latest_cd_draft() -> dict:
     )
     if not used_pex:
         pre2 = cd_strip_body_images_visually_matching_client_hero(pre2, hero_url, site=site)
+    pre2, _rem_img_credits = cd_extract_image_source_credits(pre2)
     pre2 = cd_promote_gdoc_heading_paragraphs(pre2)
+    pre2 = cd_claude_promote_subheadings(pre2, title=raw_title)
     pre2 = cd_format_body_inline_images(pre2, post_title=raw_title, site=site)
     pre2 = cd_insert_spacers_between_adjacent_figures(pre2)
     pre2 = format_to_audit_standard(pre2, site=site)
     pre2 = cd_enrich_inline_image_alts_with_vision(pre2, raw_title)
     cd_sync_inline_attachment_alts_from_body(site, pre2)
+    _rem_extra = (_rem_img_credits or "").strip()
+    if _rem_extra and tail_suffix:
+        tail_suffix = _rem_extra + "\n" + tail_suffix
+    elif _rem_extra:
+        tail_suffix = _rem_extra
     new_content = pre2.rstrip() + (("\n" + tail_suffix) if tail_suffix else "")
     # Always persist processed HTML on remediate: strict string compare misses WP serialization drift and
     # leaves the block editor on old ``P > span > img`` markup while QA passes on REST ``raw``.
@@ -5403,6 +5511,7 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
             )
     body = canonicalize_body_http_links_cd(site, body)
     body = normalize_cd_body_support_links_for_dofollow(site, body)
+    _img_src_credits = ""
     if site["key"] == "cd":
         body = cd_deduplicate_inline_body_images(
             body, hero_src_to_skip=(client_src or "").strip(), site=site
@@ -5415,7 +5524,9 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
             hero_src_to_skip=(client_src or "").strip(),
             credit_by_src=credit_by_src,
         )
+        body, _img_src_credits = cd_extract_image_source_credits(body)
         body = cd_promote_gdoc_heading_paragraphs(body)
+        body = cd_claude_promote_subheadings(body, title=title)
         body = cd_format_body_inline_images(body, post_title=title, site=site)
         body = cd_insert_spacers_between_adjacent_figures(body)
         body = format_to_audit_standard(body, site=site)
@@ -5595,8 +5706,11 @@ def run(gdoc_url: str, site_key: str = "cd") -> dict:
         print(f"[2c] Post-upload hero strip (WP URL={_hu!r}): removed {_hu_removed} body <img> with exact src match.")
 
     cite_html = (cite or "").strip()
+    extra_credits = (_img_src_credits or "").strip()
     if cite_html:
-        tail = "<!--scoutmonkeys-machine-tail-->\n" + cite_html + "\n<hr />\n" + donation_html_for(site)
+        tail = "<!--scoutmonkeys-machine-tail-->\n" + cite_html + ("\n" + extra_credits if extra_credits else "") + "\n<hr />\n" + donation_html_for(site)
+    elif extra_credits:
+        tail = "<!--scoutmonkeys-machine-tail-->\n" + extra_credits + "\n<hr />\n" + donation_html_for(site)
     else:
         tail = "<!--scoutmonkeys-machine-tail-->\n<hr />\n" + donation_html_for(site)
     content = body.rstrip() + "\n" + tail
