@@ -285,27 +285,25 @@ class TestAioseoSeoTitleWordTrim:
         assert result == title + self.SUF
         assert len(result) == 60
 
-    def test_culinary_trails_drops_to_natural_phrase(self):
-        # "Weave Food" with nothing after it is not a complete thought.
-        # Claude must keep removing until it reaches a natural stopping point.
-        # "Culinary Trails: Smart Ways" = 27 chars — clean, self-contained.
+    def test_culinary_trails_shortened_naturally(self):
+        # Small rewrites are allowed. Just assert structural invariants:
+        # suffix present, ≤60 total, h1 portion ≤43, no dangling "Weave Food".
         title = "Culinary Trails: Smart Ways to Weave Food into Your Travel Plans"
         result = build_cd_aioseo_seo_title(title, "")
         assert result.endswith(self.SUF), f"Missing suffix: {result!r}"
         assert len(result) <= 60, f"Too long: {result!r}"
         h1_part = result[: -len(self.SUF)]
-        assert title.startswith(h1_part), f"Not a prefix of H1: {result!r}"
-        # Must not end on a dangling verb+noun fragment with nothing after it
+        assert len(h1_part) <= 43, f"H1 portion exceeds 43 chars: {result!r}"
         assert not h1_part.endswith("Weave Food"), f"Dangling phrase not removed: {result!r}"
 
-    def test_no_rewrite_words_preserved_verbatim(self):
-        # Words that remain must appear verbatim from the original H1.
+    def test_long_title_shortened_to_complete_phrase(self):
+        # Rewrites are allowed; assert only structural correctness.
         title = "How to Choose the Right Roofing Contractor for Your Home Renovation Project"
         result = build_cd_aioseo_seo_title(title, "")
         assert result.endswith(self.SUF)
         assert len(result) <= 60
         h1_part = result[: -len(self.SUF)]
-        assert title.startswith(h1_part), f"Result not a prefix of H1: {result!r}"
+        assert len(h1_part) <= 43, f"H1 portion exceeds 43 chars: {result!r}"
 
     def test_result_never_exceeds_60_chars(self):
         for title in [

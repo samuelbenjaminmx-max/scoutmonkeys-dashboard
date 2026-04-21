@@ -2574,14 +2574,14 @@ def build_cd_aioseo_seo_title(full_h1: str, planner_hint: str) -> str:
     if len(t) <= budget:
         return t + suf
 
-    # Ask Claude to shorten by dropping words from the end only.
+    # Ask Claude to shorten with light rewriting allowed.
     system = (
-        "Shorten this title to fit within 43 characters. "
-        "Only remove words from the end — never rephrase or rewrite. "
-        "Stop only at a clean noun, noun phrase, or natural clause boundary. "
-        "Never stop after a verb (e.g. 'Weave'), a verb+object fragment (e.g. 'Weave Food'), "
-        "a preposition (e.g. 'to', 'into', 'for'), or an article (e.g. 'the', 'a'). "
-        "The result must read as a complete, self-contained thought. "
+        "You are an expert SEO copywriter. "
+        "Shorten this title to 43 characters or less for use as a Google search result title. "
+        "Make it sound natural and complete — like a human editor would write it, not a mechanical trim. "
+        "Keep the core meaning. Small rewrites are fine. "
+        "Example: Culinary Trails: Smart Ways to Weave Food into Your Travel Plans "
+        "→ Smart Ways to Add Food to Your Travel Plans. "
         "Return only the shortened title, nothing else."
     )
     try:
