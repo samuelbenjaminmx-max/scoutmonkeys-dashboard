@@ -285,13 +285,18 @@ class TestAioseoSeoTitleWordTrim:
         assert result == title + self.SUF
         assert len(result) == 60
 
-    def test_culinary_trails_drops_trailing_words(self):
-        # User-specified: drop from end until ≤43 chars.
-        # "Culinary Trails: Smart Ways to Weave Food" = 41 chars → fits.
+    def test_culinary_trails_drops_to_natural_phrase(self):
+        # "Weave Food" with nothing after it is not a complete thought.
+        # Claude must keep removing until it reaches a natural stopping point.
+        # "Culinary Trails: Smart Ways" = 27 chars — clean, self-contained.
         title = "Culinary Trails: Smart Ways to Weave Food into Your Travel Plans"
         result = build_cd_aioseo_seo_title(title, "")
-        assert result == "Culinary Trails: Smart Ways to Weave Food" + self.SUF, f"Got: {result!r}"
-        assert len(result) <= 60
+        assert result.endswith(self.SUF), f"Missing suffix: {result!r}"
+        assert len(result) <= 60, f"Too long: {result!r}"
+        h1_part = result[: -len(self.SUF)]
+        assert title.startswith(h1_part), f"Not a prefix of H1: {result!r}"
+        # Must not end on a dangling verb+noun fragment with nothing after it
+        assert not h1_part.endswith("Weave Food"), f"Dangling phrase not removed: {result!r}"
 
     def test_no_rewrite_words_preserved_verbatim(self):
         # Words that remain must appear verbatim from the original H1.

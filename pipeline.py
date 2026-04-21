@@ -2523,12 +2523,48 @@ def cd_format_body_inline_images(html: str, *, post_title: str = "", site: dict)
     return str(soup)
 
 
+# Words that must never be the last word of a shortened SEO title.
+_SEO_TITLE_BAD_TERMINALS = frozenset({
+    # prepositions / particles
+    "to", "for", "of", "in", "on", "at", "by", "from", "with", "into", "onto",
+    "about", "through", "during", "between", "among", "around", "before", "after",
+    "over", "under", "beyond", "within", "without", "along", "across", "via",
+    # articles / determiners
+    "a", "an", "the", "your", "our", "their", "its", "this", "that", "these", "those",
+    # conjunctions
+    "and", "or", "but", "nor", "yet", "so",
+    # common verbs that need an object when used in titles
+    "weave", "explore", "discover", "find", "make", "create", "build", "use",
+    "choose", "get", "take", "give", "bring", "keep", "let", "plan", "boost",
+    "improve", "achieve", "unlock", "maximize", "enhance", "transform", "navigate",
+})
+
+
+def _seo_title_clean_words(words: list) -> list:
+    """Drop trailing words until the title ends at a clean stopping point.
+
+    Checks both the last word AND the second-to-last word: a noun that directly
+    follows a bad-terminal verb (e.g. 'Weave Food') is also stripped, because
+    removing the verb's complement without the verb makes no sense either.
+    """
+    w = list(words)
+    while w:
+        last = w[-1].lower().rstrip(",:;-")
+        second_last = w[-2].lower().rstrip(",:;-") if len(w) >= 2 else ""
+        if last in _SEO_TITLE_BAD_TERMINALS or second_last in _SEO_TITLE_BAD_TERMINALS:
+            w.pop()
+        else:
+            break
+    return w
+
+
 def build_cd_aioseo_seo_title(full_h1: str, planner_hint: str) -> str:
     """
     AIOSEO title ≤60 chars, always ending with ' | Cultural Daily'.
 
     If H1 fits within 43 chars, use it verbatim.
-    Otherwise ask Claude to shorten to ≤43 chars by dropping words from the end.
+    Otherwise ask Claude to shorten to ≤43 chars by dropping words from the end,
+    then enforce clean terminal word via Python post-processing.
     """
     lim = 60
     suf = CD_SEO_TITLE_SUFFIX          # " | Cultural Daily" — 17 chars
@@ -2541,14 +2577,21 @@ def build_cd_aioseo_seo_title(full_h1: str, planner_hint: str) -> str:
     # Ask Claude to shorten by dropping words from the end only.
     system = (
         "Shorten this title to fit within 43 characters. "
-        "Keep it as a complete meaningful phrase — never end mid-thought or with a dangling word. "
-        "Only remove words from the end, do not rephrase or rewrite. "
-        "Return only the shortened title."
+        "Only remove words from the end — never rephrase or rewrite. "
+        "Stop only at a clean noun, noun phrase, or natural clause boundary. "
+        "Never stop after a verb (e.g. 'Weave'), a verb+object fragment (e.g. 'Weave Food'), "
+        "a preposition (e.g. 'to', 'into', 'for'), or an article (e.g. 'the', 'a'). "
+        "The result must read as a complete, self-contained thought. "
+        "Return only the shortened title, nothing else."
     )
     try:
         shortened = _anthropic_messages(system, t, temperature=0.0).strip().strip('"').strip("'")
         if shortened and len(shortened) <= budget:
-            return shortened + suf
+            # Enforce clean terminal even if Claude chose a bad one
+            words = _seo_title_clean_words(shortened.split())
+            clipped = " ".join(words).rstrip(" :,-")
+            if clipped:
+                return clipped + suf
     except Exception:
         pass
 
@@ -2556,6 +2599,7 @@ def build_cd_aioseo_seo_title(full_h1: str, planner_hint: str) -> str:
     words = t.split()
     while words and len(" ".join(words)) > budget:
         words.pop()
+    words = _seo_title_clean_words(words)
     clipped = " ".join(words).rstrip(" :,-")
     if clipped:
         return clipped + suf
