@@ -57,3 +57,5 @@ These rules override any general AI behavior, summarization behavior, rewriting 
 15. **AI LIBERTY** — No creative liberties on H1, body, donation, category, captions, focus keyphrase, SEO title policy, or image facts. When uncertain — flag for manual review.
 
 16. **AUDIT CONFORMITY (§13)** — The pipeline must not introduce HTML or layout patterns absent from `data/our_friends_audit.json`. When uncertain, consult that corpus first.
+
+17. **PEXELS HERO IMAGE SELECTION** — When selecting a Pexels hero image, identify the **main sponsored product or subject** from the article body — specifically from bolded text or linked keywords — and include it explicitly in the Pexels search query. The hero image must **visually show that specific product or subject**, not just the general topic. Example: for a baseball sunglasses article, search `baseball player sunglasses`, not `baseball player`. A hero that shows only the general context (sport, location, activity) without the sponsored product is wrong. Extract the product noun from the article's paid anchor text or focus keyphrase and treat it as a required visual element in the search query.
