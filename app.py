@@ -88,8 +88,11 @@ label{display:block;font-size:.85rem;font-weight:600;color:#444;
 input[type=text],select{width:100%;padding:.8rem 1rem;
   border:1.5px solid #d1d5db;border-radius:8px;font-size:1rem;
   outline:none;transition:border .15s;background:#fff}
-input[type=text]:focus,select:focus{
+input[type=text]:focus,select:focus,textarea:focus{
   border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.15)}
+textarea{width:100%;padding:.8rem 1rem;border:1.5px solid #d1d5db;
+  border-radius:8px;font-size:.95rem;outline:none;transition:border .15s;
+  background:#fff;resize:vertical;min-height:80px;font-family:inherit}
 #pub-btn{width:100%;margin-top:1.75rem;padding:1rem;
   background:#16a34a;color:#fff;border:none;border-radius:8px;
   font-size:1.1rem;font-weight:700;cursor:pointer;
@@ -136,6 +139,9 @@ input[type=text]:focus,select:focus{
       <option value="dcr">DCReport</option>
     </select>
 
+    <label for="notes">Notes for this article</label>
+    <textarea id="notes" placeholder="Optional — overrides defaults for this run only (e.g. category, tone, focus keyword hint)"></textarea>
+
     <button id="pub-btn" onclick="startPublish()">Publish Draft</button>
 
     <div id="log-section">
@@ -153,8 +159,9 @@ input[type=text]:focus,select:focus{
 
 <script>
 function startPublish() {
-  const gdoc = document.getElementById('gdoc').value.trim();
-  const site = document.getElementById('site').value;
+  const gdoc  = document.getElementById('gdoc').value.trim();
+  const site  = document.getElementById('site').value;
+  const notes = document.getElementById('notes').value.trim();
   if (!gdoc) { alert('Please enter a Google Doc URL.'); return; }
 
   const btn      = document.getElementById('pub-btn');
@@ -173,6 +180,7 @@ function startPublish() {
   qaMsg.className = '';
 
   const qs = new URLSearchParams({ gdoc, site });
+  if (notes) qs.set('notes', notes);
   const es = new EventSource('/stream?' + qs.toString());
 
   es.addEventListener('log', ev => {
@@ -282,8 +290,9 @@ def stream():
     if not _authed():
         return Response(_sse("done", "{}"), mimetype="text/event-stream")
 
-    gdoc = (request.args.get("gdoc") or "").strip()
-    site = (request.args.get("site") or "cd").strip()
+    gdoc  = (request.args.get("gdoc") or "").strip()
+    site  = (request.args.get("site") or "cd").strip()
+    notes = (request.args.get("notes") or "").strip()
     if not gdoc:
         return Response(
             _sse("log", "[error] No Google Doc URL provided.") + _sse("done", "{}"),
@@ -293,6 +302,8 @@ def stream():
     root = Path(__file__).resolve().parent
     env = {**os.environ, "CD_RELAX_SOCIAL_WP_PIXEL_ASSERT": "1"}
     cmd = [sys.executable, str(root / "pipeline.py"), gdoc, site]
+    if notes:
+        cmd += ["--notes", notes]
 
     def generate():
         proc = subprocess.Popen(

@@ -397,6 +397,7 @@ def plan_from_gdoc_html(
     critical_rules: bool = False,
     machine_h1: str = "",
     client_image_src: Optional[str] = None,
+    notes: str = "",
 ) -> dict:
     base = _default_plan_system(site)
     critical_block = load_critical_rules_text() if critical_rules else ""
@@ -448,7 +449,10 @@ def plan_from_gdoc_html(
     # Never send raw Doc HTML to Claude (rule 2 — body must not pass through the model).
     excerpt_max = 12_000 if critical_rules else 28_000
     excerpt = planner_plaintext_excerpt_from_gdoc(gdoc_html, max_chars=excerpt_max)
-    user_parts = [
+    user_parts = []
+    if notes:
+        user_parts.append(f"Special instructions for this article: {notes}\n\n")
+    user_parts += [
         "DOC_PLAINTEXT_EXCERPT_START\n",
         excerpt,
         "\nDOC_PLAINTEXT_EXCERPT_END\n",
@@ -5509,7 +5513,7 @@ send_whatsapp = send_sms
 # ---------------------------------------------------------------------------
 
 
-def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "") -> dict:
+def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "", notes: str = "") -> dict:
     _apply_repo_dotenv_for_cli()
     _refresh_runtime_env_from_os()
     _refresh_sites()
@@ -5561,6 +5565,7 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "")
         critical_rules=cr,
         machine_h1=machine_h1,
         client_image_src=client_src,
+        notes=notes,
     )
     topic = re.sub(r"[^a-z0-9-]+", "-", (plan.get("topic_slug") or "topic").lower()).strip("-")
     title = (plan.get("post_title") or "Untitled").strip()
@@ -6048,17 +6053,21 @@ def main(argv: List[str]) -> None:
     url = argv[0]
     remaining = argv[1:]
     photographer_override: str = ""
+    notes: str = ""
     filtered: List[str] = []
     i = 0
     while i < len(remaining):
         if remaining[i] == "--photographer" and i + 1 < len(remaining):
             photographer_override = remaining[i + 1].strip()
             i += 2
+        elif remaining[i] == "--notes" and i + 1 < len(remaining):
+            notes = remaining[i + 1].strip()
+            i += 2
         else:
             filtered.append(remaining[i])
             i += 1
     site = filtered[0] if filtered else "cd"
-    out = run(url, site, photographer_override=photographer_override)
+    out = run(url, site, photographer_override=photographer_override, notes=notes)
     print(json.dumps(out, indent=2))
 
 
