@@ -124,9 +124,9 @@ def _site_dcr() -> dict:
         "hero_h": _safe_int_env("DCR_HERO_H", 532),
         "social_w": _safe_int_env("DCR_SOCIAL_W", 814),
         "social_h": _safe_int_env("DCR_SOCIAL_H", 532),
-        "title_max": 65,
-        "seo_title_max": 65,
-        "meta_description_max": 140,
+        "title_max": 73,
+        "seo_title_max": 73,
+        "meta_description_max": 160,
         "meta_description_min": 1,
         "author_id": _safe_int_env("DCR_AUTHOR_ID", 99),
         "default_category_slugs": ("our-friends", "friends"),
@@ -152,6 +152,9 @@ DONATION_HTML_CD = (
     f'<a href="https://www.culturaldaily.com/support/" target="_blank" rel="nofollow noopener">'
     f"{DONATION_CTA_TEXT_CD}</a>"
     "</strong></p>"
+)
+DONATION_CTA_TEXT_DCR = (
+    "CLICK HERE TO DONATE IN SUPPORT OF DCREPORT'S NONPROFIT MISSION"
 )
 
 # CD AIOSEO title suffix when length allows (never mid-word truncation — see ``build_cd_aioseo_seo_title``).
@@ -230,7 +233,7 @@ def donation_html_for(site: dict) -> str:
         return custom
     return (
         '<p><strong><a href="https://www.dcreport.org/donate/" target="_blank" rel="nofollow noopener">'
-        "CLICK HERE TO DONATE IN SUPPORT OF DCREPORT'S NONPROFIT MISSION</a></strong></p>"
+        f"{DONATION_CTA_TEXT_DCR}</a></strong></p>"
     )
 
 
@@ -1305,7 +1308,7 @@ def remove_client_hero_image_from_body_html(body_html: str, client_src: str) -> 
                 parent.decompose()
         removed += 1
     if removed:
-        print(f"[2c] CD body: removed {removed} client-hero <img> node(s) (URL match — featured image only).")
+        print(f"[2c] Article body: removed {removed} client-hero <img> node(s) (URL match — featured image only).")
     return str(soup)
 
 
@@ -3408,8 +3411,8 @@ def _cd_measure_image_url_pixels(url: str) -> Optional[Tuple[int, int]]:
 def assert_cd_social_attachment_stored_dimensions(
     site: dict, media: dict, *, context: str, allow_host_downscale: bool = False
 ) -> None:
-    """Fail fast if WordPress did not keep the social raster (PNG/JPEG) at CD pixel dimensions."""
-    if site.get("key") != "cd":
+    """Fail fast if WordPress did not keep the social raster (PNG/JPEG) at the site's target pixels."""
+    if site.get("key") not in ("cd", "dcr"):
         return
     md = media.get("media_details") or {}
     sw = int(md.get("width") or 0)
@@ -3430,7 +3433,7 @@ def assert_cd_social_attachment_stored_dimensions(
         "true",
         "yes",
     )
-    if relax or allow_host_downscale:
+    if site.get("key") == "cd" and (relax or allow_host_downscale):
         print(
             f"[warn] WordPress stored social as {sw}×{sh}, expected {ew}×{eh} ({context}). "
             + (
@@ -3442,16 +3445,23 @@ def assert_cd_social_attachment_stored_dimensions(
             )
         )
         return
-    mu = (
-        "Install mu-plugin from this repo: ``wordpress-mu-plugins/cd-pipeline-preserve-social-upload.php`` "
-        "→ ``wp-content/mu-plugins/`` (stops core big-image downscale for pipeline social uploads). "
-        "Also disable \"resize on upload\" in Smush/ShortPixel/EWWW if they still shrink to ~1481px."
-    )
+    if site.get("key") == "cd":
+        mu = (
+            "Install mu-plugin from this repo: ``wordpress-mu-plugins/cd-pipeline-preserve-social-upload.php`` "
+            "→ ``wp-content/mu-plugins/`` (stops core big-image downscale for pipeline social uploads). "
+            "Also disable \"resize on upload\" in Smush/ShortPixel/EWWW if they still shrink to ~1481px."
+        )
+        raise RuntimeError(
+            f"CD social image must be stored as {ew}×{eh}px in WordPress (CRITICAL_RULES §11). "
+            f"After upload, REST reports {sw}×{sh}"
+            + (f"; downloaded ``source_url`` is {measured[0]}×{measured[1]}" if measured else "")
+            + f" ({context}). {mu}"
+        )
     raise RuntimeError(
-        f"CD social image must be stored as {ew}×{eh}px in WordPress (CRITICAL_RULES §11). "
+        f"DCR social image must be stored as {ew}×{eh}px in WordPress. "
         f"After upload, REST reports {sw}×{sh}"
         + (f"; downloaded ``source_url`` is {measured[0]}×{measured[1]}" if measured else "")
-        + f" ({context}). {mu}"
+        + f" ({context})."
     )
 
 
@@ -3481,6 +3491,299 @@ def resolve_check_this_out_category(site: dict) -> int:
     raise RuntimeError(
         "CRITICAL_RULES: WordPress category 'Check This Out' not found — create it or fix the slug."
     )
+
+
+def _wp_post_meta_string(post: dict, key: str) -> str:
+    m = post.get("meta") or {}
+    if not isinstance(m, dict):
+        return ""
+    v = m.get(key)
+    if v is None:
+        return ""
+    if isinstance(v, list) and v:
+        return str(v[0] or "").strip()
+    return str(v).strip()
+
+
+def dcr_photo_caption_markup_html(credit_url: str, photographer_via_label: str) -> str:
+    """
+    DCR contract: ``photo: Name via Platform`` — italic, linked to source, ``target=_blank``, not bold.
+    """
+    u = (credit_url or "").strip()
+    lab = (photographer_via_label or "").strip()
+    if not u:
+        return ""
+    inner = f"photo: {lab}" if lab else "photo: image source"
+    u_esc = html_module.escape(u)
+    inner_esc = html_module.escape(inner)
+    return (
+        '<p style="display:block;margin:0 auto;text-align:center">'
+        f'<em><a href="{u_esc}" target="_blank" rel="noopener">{inner_esc}</a></em></p>'
+    )
+
+
+def dcr_tail_photo_citation_html(credit_url: Optional[str], photographer_via_label: str) -> str:
+    """Machine-tail citation paragraph (same visible pattern as body/hero captions)."""
+    u = (credit_url or "").strip()
+    lab = (photographer_via_label or "").strip()
+    if not u and not lab:
+        return ""
+    if not u:
+        inner = f"photo: {lab}" if lab else "photo: supplied"
+        return f"<p><em>{html_module.escape(inner)}</em></p>"
+    inner = f"photo: {lab}" if lab else "photo: supplied"
+    return (
+        f'<p><em><a href="{html_module.escape(u)}" target="_blank" rel="noopener">'
+        f"{html_module.escape(inner)}</a></em></p>"
+    )
+
+
+def dcr_single_word_focus_from_title(title: str) -> str:
+    for cand in cd_title_focus_keyword_candidates(title):
+        if " " not in cand.strip():
+            return cand.strip()
+    words = re.findall(r"[a-z0-9]+", unicodedata.normalize("NFKC", (title or "")).lower())
+    for w in words:
+        if len(w) >= 3 and w not in _CD_FOCUS_STOPWORDS:
+            return w
+    return (words[0] if words else "").strip()
+
+
+def dcr_ensure_focus_in_title_and_meta(title: str, meta: str, focus: str, meta_max: int) -> str:
+    """DCR: one-word focus must appear in H1 (title) and meta; meta is clipped to meta_max."""
+    f = (focus or "").strip()
+    base = (meta or "").strip()
+    if not f:
+        return base
+    tl = unicodedata.normalize("NFKC", (title or "")).strip().lower()
+    if f.lower() not in tl:
+        print(
+            f"[warn] DCR focus keyword {f!r} not found as substring in post title — "
+            "QA may fail until the title includes that word."
+        )
+    if f.lower() not in base.lower():
+        sep = " " if base and not base.endswith(" ") else ""
+        base = f"{base}{sep}{f}".strip()
+    if len(base) > meta_max:
+        base = _clip_at_sentence_boundary(base, meta_max)
+    return _enforce_meta_period(base)
+
+
+def dcr_resolve_inline_credit(credit_page_url: str) -> Tuple[str, str]:
+    """
+    Given a Doc-linked credit URL, return ``(resolved_https_url, photographer_via_label)`` for captions.
+    """
+    raw = (credit_page_url or "").strip()
+    if not raw:
+        return "", ""
+    real = doc_parser.normalize_href(_unwrap_google_redirect_url(raw))
+    if not real.lower().startswith("http"):
+        return "", ""
+    name, plat = _extract_platform_photographer(real)
+    if name and plat:
+        return real, f"{name} via {plat}"
+    if plat:
+        return real, f"via {plat}"
+    try:
+        dom = urlparse(real).netloc.replace("www.", "")
+    except Exception:
+        dom = ""
+    return real, (f"via {dom}" if dom else "")
+
+
+def _dcr_apply_figure_center_styles(fig, img, site: dict) -> None:
+    fig_cls = fig.get("class") or []
+    if isinstance(fig_cls, str):
+        fig_cls = [c for c in fig_cls.split() if c]
+    for token in ("wp-block-image", "aligncenter"):
+        if token not in fig_cls:
+            fig_cls.append(token)
+    fig["class"] = fig_cls
+    fig["align"] = "center"
+    if "style" in fig.attrs:
+        del fig["style"]
+    img_cls = img.get("class") or []
+    if isinstance(img_cls, str):
+        img_cls = [c for c in img_cls.split() if c]
+    img_cls = [c for c in img_cls if c not in ("size-full", "size-large")]
+    for token in ("aligncenter", "size-large"):
+        if token not in img_cls:
+            img_cls.append(token)
+    img["class"] = img_cls
+    img["align"] = "center"
+    img["width"] = str(int(site["hero_w"]))
+    img["height"] = str(int(site["hero_h"]))
+    if "style" in img.attrs:
+        del img["style"]
+
+
+def dcr_reupload_inline_body_images(
+    site: dict,
+    body_html: str,
+    *,
+    topic_slug: str,
+    post_title: str,
+    hero_src_to_skip: str = "",
+    credit_by_src: Optional[dict[str, str]] = None,
+) -> str:
+    """
+    DCR: upload each inline ``<img>`` at exact ``hero_w×hero_h``, center in ``<figure>``,
+    mandatory alt, caption ``photo: … via …`` from Doc credit link when present.
+    """
+    if site.get("key") != "dcr" or not (body_html or "").strip():
+        return body_html
+    soup = BeautifulSoup(body_html, "html.parser")
+    changed = False
+    slot = 0
+    seen_fp: set[str] = set()
+    dup_removed = 0
+    hero_refs: List[Image.Image] = []
+    hss = (hero_src_to_skip or "").strip()
+    if hss:
+        try:
+            hero_refs = _cd_hero_reference_stack(hss, site)
+        except Exception:
+            hero_refs = []
+    cred = credit_by_src or {}
+    tw, th = int(site["hero_w"]), int(site["hero_h"])
+
+    def _credit_page_for_src(s: str) -> str:
+        s = (s or "").strip()
+        if not s:
+            return ""
+        if s.lower().startswith("data:"):
+            dk = "data:" + hashlib.sha256(s.encode("utf-8", errors="ignore")).hexdigest()[:48]
+            return (cred.get(dk) or "").strip()
+        return (cred.get(_url_key(s)) or "").strip()
+
+    for img in list(soup.find_all("img")):
+        src = (img.get("src") or "").strip()
+        if not src or src.startswith("blob:"):
+            continue
+        low = src.lower()
+        if not (low.startswith("http") or low.startswith("data:")):
+            continue
+        if hss and _urls_loosely_same(src, hss):
+            _cd_remove_img_and_collapsing_empties(img)
+            changed = True
+            continue
+        try:
+            pil = _pil_image_from_src(src).convert("RGB")
+        except Exception as e:
+            print(f"[warn] DCR inline image decode skipped ({src[:90]}…): {e}")
+            continue
+        fp = hashlib.sha256(_cd_pil_fingerprint_bytes(pil)).hexdigest()
+        if hero_refs and _cd_body_image_matches_hero_references(pil, hero_refs, site):
+            _cd_remove_img_and_collapsing_empties(img)
+            changed = True
+            dup_removed += 1
+            continue
+        if fp in seen_fp:
+            _cd_remove_img_and_collapsing_empties(img)
+            changed = True
+            dup_removed += 1
+            continue
+        slot += 1
+        sized = _resize_cover_exact_floor(pil, tw, th)
+        alt0 = (img.get("alt") or img.get("title") or "").strip()
+        alt_f = _cd_inline_alt_for_img(alt0, post_title, slot=slot, src_url=src)
+        title_m = cd_insert_media_title(site, slot, topic_slug)
+        fn = f"{title_m}.jpg"
+        href_page = _credit_page_for_src(src)
+        _cu, label = dcr_resolve_inline_credit(href_page)
+        if _cu:
+            cap_html = dcr_photo_caption_markup_html(_cu, label)
+        elif label:
+            cap_html = (
+                '<p style="display:block;margin:0 auto;text-align:center">'
+                f"<em>{html_module.escape(f'photo: {label}')}</em></p>"
+            )
+        else:
+            cap_html = (
+                '<p style="display:block;margin:0 auto;text-align:center">'
+                "<em>photo: supplied</em></p>"
+            )
+        cap_upload = cap_html
+        try:
+            m = wp_upload_jpeg(site, sized, fn, title_m, alt_f, cap_upload)
+        except Exception as e:
+            print(f"[warn] DCR inline image WordPress upload failed ({fn}): {e}")
+            continue
+        nu = (m.get("source_url") or "").strip()
+        if not nu:
+            continue
+        changed = True
+        print(f"[img-url] DCR INSERT-{slot} src: {nu}")
+        img["src"] = nu
+        img["alt"] = alt_f
+        img["title"] = title_m
+        mid_up = m.get("id")
+        if mid_up is not None:
+            _cd_merge_wp_image_class(img, int(mid_up))
+        parent = img.parent
+        if parent and getattr(parent, "name", "") == "figure":
+            fig = parent
+        elif parent and _p_contains_only_img(parent):
+            fig = soup.new_tag("figure", attrs={"align": "center"})
+            parent.replace_with(fig)
+            fig.append(img)
+        else:
+            fig = soup.new_tag("figure", attrs={"align": "center"})
+            img.replace_with(fig)
+            fig.append(img)
+        _dcr_apply_figure_center_styles(fig, img, site)
+        _cd_unwrap_span_wrappers_around_figure(fig)
+        _cd_center_paragraph_parent_of_figure(fig)
+        if cap_html:
+            cap_frag = BeautifulSoup(cap_html, "html.parser")
+            for p_cap in cap_frag.find_all("p", recursive=False):
+                fig.insert_after(p_cap)
+                changed = True
+        seen_fp.add(fp)
+    if dup_removed:
+        print(
+            f"[2c] DCR inline images: removed {dup_removed} duplicate or hero-matching <img> node(s)."
+        )
+    return str(soup) if changed else body_html
+
+
+def resolve_dcr_post_categories(site: dict, *, title: str, topic_slug: str, cat_hint: str) -> Tuple[List[int], str]:
+    """DCR: always include Check This Out; optionally casino / betting / CBD / crypto when the copy matches."""
+    wp, wp_sess = wp_auth(site)
+    notes: List[str] = []
+    try:
+        main_id = resolve_check_this_out_category(site)
+        notes.append("check-this-out")
+    except RuntimeError:
+        main_id = resolve_default_category(site, "check this out")
+        notes.append("check-this-out-fallback")
+    ids: List[int] = [main_id]
+    seen: set[int] = {main_id}
+    blob = f"{title} {topic_slug} {cat_hint}".lower()
+    extra: List[str] = []
+    if re.search(
+        r"\b(casino|gambling|poker|slots|sportsbook|betting|sports betting|wager|sportsbet|sports-betting)\b",
+        blob,
+    ):
+        for s in ("casino", "betting", "gambling"):
+            if s not in extra:
+                extra.append(s)
+    if re.search(r"\b(cbd|hemp|thc|cannabis)\b", blob):
+        extra.append("cbd")
+    if re.search(r"\b(crypto|bitcoin|ethereum|blockchain|defi|nft)\b", blob):
+        extra.append("crypto")
+    for slug in extra:
+        r = wp_sess.get(f"{wp}/wp-json/wp/v2/categories", params={"slug": slug}, timeout=30)
+        r.raise_for_status()
+        rows = r.json()
+        if not rows:
+            continue
+        eid = int(rows[0]["id"])
+        if eid not in seen:
+            ids.append(eid)
+            seen.add(eid)
+            notes.append(f"+{slug}")
+    return ids, ",".join(notes)
 
 
 def photographer_meta(photo: dict) -> Tuple[str, str, str]:
@@ -3970,6 +4273,7 @@ def create_wp_draft(
     social_url: str,
     excerpt: str,
     *,
+    category_ids: Optional[List[int]] = None,
     gdoc_url: str = "",
 ) -> dict:
     wp, wp_sess = wp_auth(site)
@@ -3978,12 +4282,13 @@ def create_wp_draft(
     tracked_content = content
     if gdoc_url:
         tracked_content = content.rstrip() + f"\n<!-- scoutmonkeys-gdoc:{gdoc_url} -->"
+    cats = list(category_ids) if category_ids else [category_id]
     payload = {
         "title": title,
         "content": tracked_content,
         "status": "draft",
         "featured_media": hero_id,
-        "categories": [category_id],
+        "categories": cats,
         "excerpt": excerpt,
         "author": site["author_id"],
     }
@@ -4047,7 +4352,9 @@ def push_aioseo_and_cdseo(
     """
     wp, wp_sess = wp_auth(site)
     if site.get("key") == "dcr":
-        _push_yoast_seo(wp, wp_sess, post_id, seo, og_custom_url, seo_title_max=(int(seo_title_max) if seo_title_max else 65), md_clip=140)
+        st_max = int(seo_title_max) if seo_title_max is not None else int(site.get("seo_title_max") or 73)
+        md_max = int(site.get("meta_description_max") or 160)
+        _push_yoast_seo(wp, wp_sess, post_id, seo, og_custom_url, seo_title_max=st_max, md_clip=md_max)
         return
 
     st_clip = int(seo_title_max) if seo_title_max is not None else int(site["seo_title_max"])
@@ -4323,11 +4630,11 @@ def unwrap_google_redirect_hrefs_in_body(html: str) -> str:
 
 def canonicalize_body_http_links_cd(site: dict, body_html: str) -> str:
     """
-    CD sponsored contract: every ``http(s)`` body anchor is dofollow, ``target=_blank``,
+    CD / DCR sponsored contract: every ``http(s)`` body anchor is dofollow, ``target=_blank``,
     and wraps anchor text in ``<strong>`` (same shape as ``verify_sponsored_body_links``).
     Also unwraps any residual Google redirect hrefs (google.com/url?q=).
     """
-    if site.get("key") != "cd" or not (body_html or "").strip():
+    if site.get("key") not in ("cd", "dcr") or not (body_html or "").strip():
         return body_html
     soup = BeautifulSoup(body_html, "html.parser")
     changed = False
@@ -4385,6 +4692,10 @@ def _html_before_machine_tail(raw: str) -> str:
     m = re.search(r'<p><em><a href="https://www\.pexels\.com[^>]*>', raw, re.I)
     if m:
         return raw[: m.start()]
+    if DONATION_CTA_TEXT_CD in raw:
+        return raw.split(DONATION_CTA_TEXT_CD, 1)[0]
+    if DONATION_CTA_TEXT_DCR in raw:
+        return raw.split(DONATION_CTA_TEXT_DCR, 1)[0]
     if "CLICK HERE TO DONATE" in raw:
         return raw.split("CLICK HERE TO DONATE", 1)[0]
     return raw
@@ -4430,12 +4741,18 @@ def normalize_cd_body_support_links_for_dofollow(site: dict, body_html: str) -> 
 def verify_sponsored_body_links(html_before_tail: str) -> Tuple[bool, str]:
     """
     Every outbound body http(s) link: dofollow, target=_blank, bold inner anchor (hard site rule).
+    Skips ``<em><a>…`` photo-credit links (italic captions, not sponsored anchors).
     """
     soup = BeautifulSoup(html_before_tail, "html.parser")
     for a in soup.find_all("a"):
         href = (a.get("href") or "").strip()
         if not re.match(r"https?://", href, re.I):
             continue
+        em_par = a.find_parent("em")
+        if em_par and not em_par.find_parent("strong"):
+            et = em_par.get_text(" ", strip=True).lower()
+            if "photo:" in et[:80]:
+                continue
         rel = a.get("rel")
         rel_s = " ".join(rel) if isinstance(rel, list) else (rel or "")
         if "nofollow" in rel_s.lower():
@@ -4473,6 +4790,9 @@ def verify_post(
     )
     _rpost.raise_for_status()
     post = _rpost.json()
+    yo_seo_title = _wp_post_meta_string(post, "_yoast_wpseo_title")
+    yo_metadesc = _wp_post_meta_string(post, "_yoast_wpseo_metadesc")
+    yo_focus = _wp_post_meta_string(post, "_yoast_wpseo_focuskw")
     _rhero = wp_sess.get(f"{wp}/wp-json/wp/v2/media/{hero_id}?context=edit", timeout=30
     )
     _rhero.raise_for_status()
@@ -4508,8 +4828,20 @@ def verify_post(
         )
     else:
         chk("Post title set (verbatim H1)", bool(raw_title), f"{len(raw_title)} chars")
+    if site.get("key") == "dcr":
+        chk(
+            f"Post title ≤{title_max} chars (DCR)",
+            len(raw_title) <= int(title_max),
+            f"{len(raw_title)} chars",
+        )
 
-    seo_title = seo_r.get("aioseo_db", {}).get("title") or ""
+    seo_title = (seo_r.get("aioseo_db", {}).get("title") or "").strip()
+    meta = (seo_r.get("aioseo_db", {}).get("description") or "").strip()
+    if site.get("key") == "dcr":
+        if yo_seo_title:
+            seo_title = yo_seo_title
+        if yo_metadesc:
+            meta = yo_metadesc
     if site.get("key") == "cd":
         exp_seo = build_cd_aioseo_seo_title(raw_title, ((seo or {}).get("seo_title") or "").strip())
         chk(
@@ -4530,7 +4862,6 @@ def verify_post(
             f"{len(seo_title)} chars",
         )
 
-    meta = seo_r.get("aioseo_db", {}).get("description") or ""
     if site.get("key") == "cd":
         chk(
             "Meta description 120–160 chars (CD)",
@@ -4542,11 +4873,13 @@ def verify_post(
         chk(f"Meta description ≤{md_max} chars", 0 < len(meta) <= md_max, f"{len(meta)} chars")
 
     try:
-        kw = json.loads(seo_r["aioseo_db"].get("keyphrases") or "{}").get("focus", {}).get(
+        kw = json.loads((seo_r.get("aioseo_db") or {}).get("keyphrases") or "{}").get("focus", {}).get(
             "keyphrase", ""
         )
     except Exception:
         kw = ""
+    if site.get("key") == "dcr" and not (kw or "").strip():
+        kw = yo_focus
     chk("Focus keyword set", bool(kw), f"'{kw}'")
     body_plain_for_kw = BeautifulSoup(pre_tail, "html.parser").get_text(" ", strip=True)
     if site.get("key") == "cd":
@@ -4557,6 +4890,16 @@ def verify_post(
             bool(kw) and 0 < kw_words <= 2 and kws >= 81.99,
             f"{kw_words} words, score={kws:.1f}",
         )
+    elif site.get("key") == "dcr":
+        kwt = (kw or "").strip()
+        kww = kwt.split()
+        ok_one = bool(kwt) and len(kww) == 1
+        fk = kwt.lower()
+        tl = raw_title.lower()
+        ml = meta.lower()
+        ok_in = bool(kwt) and fk in tl and fk in ml
+        chk("DCR focus keyword is exactly one word", ok_one, repr(kwt))
+        chk("DCR focus appears in post title + meta description", ok_in, "")
     elif critical_rules:
         kw_words = len(kw.split()) if kw else 0
         chk(
@@ -4616,7 +4959,14 @@ def verify_post(
         chk("Hero alt text descriptive (>10 chars)", len(h_alt) > 10, f'"{h_alt[:50]}"')
 
     h_cap = _cap_raw(hero)
-    if critical_rules:
+    if site.get("key") == "dcr":
+        h_plain = BeautifulSoup(h_cap, "html.parser").get_text(" ", strip=True).lower()
+        chk(
+            "Hero caption begins 'photo:' (DCR)",
+            bool(h_plain.startswith("photo:")),
+            repr(h_cap[:100]),
+        )
+    elif critical_rules:
         chk(
             "Hero caption empty or Photo credit (CRITICAL_RULES)",
             h_cap == "" or h_cap.startswith("Photo:"),
@@ -4644,7 +4994,14 @@ def verify_post(
         chk("Social alt matches hero", s_alt == h_alt)
 
     s_cap = _cap_raw(soc)
-    if critical_rules:
+    if site.get("key") == "dcr":
+        s_plain = BeautifulSoup(s_cap, "html.parser").get_text(" ", strip=True).lower()
+        chk(
+            "Social caption begins 'photo:' (DCR)",
+            bool(s_plain.startswith("photo:")),
+            repr(s_cap[:100]),
+        )
+    elif critical_rules:
         chk(
             "Social caption empty or Photo credit (CRITICAL_RULES)",
             s_cap == "" or s_cap.startswith("Photo:"),
@@ -4708,29 +5065,38 @@ def verify_post(
             bad_slug or "ok",
         )
     elif site.get("key") == "dcr":
-        cat_ids: List[int] = []
+        cat_ids_d: List[int] = []
         for x in post.get("categories") or []:
             try:
-                cat_ids.append(int(x))
+                cat_ids_d.append(int(x))
             except (TypeError, ValueError):
                 continue
-        bad_slug = ""
-        if cat_ids:
+        slugs: List[str] = []
+        if cat_ids_d:
             rcat = wp_sess.get(f"{wp}/wp-json/wp/v2/categories",
-                params={"include": ",".join(str(x) for x in cat_ids[:50]), "per_page": 50},
+                params={"include": ",".join(str(x) for x in cat_ids_d[:50]), "per_page": 50},
                 timeout=30,
             )
             if rcat.ok:
                 for row in rcat.json():
-                    slug = (row.get("slug") or "").strip().lower()
-                    name = (row.get("name") or "").strip().lower()
-                    if slug == "sponsored" or name == "sponsored":
-                        bad_slug = row.get("slug") or row.get("name") or "sponsored"
-                        break
+                    slugs.append((row.get("slug") or "").strip().lower())
+        has_check = any(("check" in s and "out" in s) for s in slugs)
+        has_featured_story = any(s == "featured-story" for s in slugs)
+        bad_sponsored = any(s == "sponsored" for s in slugs)
         chk(
-            "Post category excludes Sponsored (DCR)",
-            not bad_slug,
-            bad_slug or "ok",
+            "DCR categories include Check This Out",
+            has_check,
+            ",".join(slugs[:12]) or "(none)",
+        )
+        chk(
+            "DCR categories exclude Featured Story",
+            not has_featured_story,
+            ",".join(slugs[:12]) or "(none)",
+        )
+        chk(
+            "DCR categories exclude Sponsored slug",
+            not bad_sponsored,
+            ",".join(slugs[:12]) or "ok",
         )
 
     chk(
@@ -4743,19 +5109,22 @@ def verify_post(
 
     cite_pexels = bool(
         re.search(
-            r'<p><em><a href="https://www\.pexels\.com[^"]*"[^>]*>Photo: .+ via Pexels</a></em></p>',
+            r'(?i)<p><em><a href="https://www\.pexels\.com[^"]*"[^>]*>photo:\s*.+via Pexels</a></em></p>',
             c,
-            re.I,
         )
     )
     cite_other = bool(
         re.search(
-            r'<p><em><a href="https?://[^"]+"[^>]*rel="nofollow noopener"[^>]*>Photo:\s*.+</a></em></p>',
+            r'(?i)<p><em><a href="https?://[^"]+"[^>]*rel="nofollow noopener"[^>]*>photo:\s*.+</a></em></p>',
             c,
-            re.I,
+        )
+    ) or bool(
+        re.search(
+            r'(?i)<p><em><a href="https?://[^"]+"[^>]*target="_blank"[^>]*rel="noopener"[^>]*>photo:\s*.+</a></em></p>',
+            c,
         )
     )
-    cite_client_plain = bool(re.search(r"<p><em>Photo:\s*.+</em></p>", c, re.I))
+    cite_client_plain = bool(re.search(r"(?i)<p><em>photo:\s*.+</em></p>", c))
     cite_client_none = False
     if "<!--scoutmonkeys-machine-tail-->" in c:
         rest = c.split("<!--scoutmonkeys-machine-tail-->", 1)[1]
@@ -4763,14 +5132,20 @@ def verify_post(
         cite_client_none = ("<p><em>" not in pre_hr) and ("photo:" not in pre_hr.lower())
     cite_ok = cite_pexels or cite_other or cite_client_plain or cite_client_none
     chk("Citation (Pexels / client / none-marker)", cite_ok)
-    chk("Citation NOT bold", "<strong>Photo:" not in c)
+    cite_not_bold = ("<strong>photo:" not in c.lower()) and ("<strong>Photo:" not in c)
+    chk("Citation NOT bold", cite_not_bold, "")
 
     chk("Horizontal rule <hr />", "<hr />" in c)
     chk("No <!--nextpage--> page break", "<!--nextpage-->" not in c)
 
+    donation_ok = (
+        (DONATION_CTA_TEXT_CD in c)
+        or (DONATION_CTA_TEXT_DCR in c)
+        or ("CLICK HERE TO DONATE" in c)
+    )
     chk(
-        "Donation box present (canonical CD CTA)",
-        (DONATION_CTA_TEXT_CD in c) or ("CLICK HERE TO DONATE" in c),
+        "Donation CTA present (CD or DCR canonical)",
+        donation_ok,
         "",
     )
 
@@ -4781,9 +5156,17 @@ def verify_post(
         rest_after_hr = tail_rest[m_hr.end() :].lstrip() if m_hr else ""
         # Nothing between ``<hr />`` and the donation block except whitespace — donation opens with ``<p>``.
         hr_donation_gap_ok = bool(
-            m_hr and rest_after_hr.lower().startswith("<p>") and DONATION_CTA_TEXT_CD in tail_rest
+            m_hr
+            and rest_after_hr.lower().startswith("<p>")
+            and (
+                DONATION_CTA_TEXT_CD in tail_rest
+                or DONATION_CTA_TEXT_DCR in tail_rest
+                or ("CLICK HERE TO DONATE" in tail_rest)
+            )
         )
         dp = tail_rest.find(DONATION_CTA_TEXT_CD)
+        if dp < 0:
+            dp = tail_rest.find(DONATION_CTA_TEXT_DCR)
         if dp < 0:
             dp = tail_rest.find("CLICK HERE TO DONATE")
         pre_hr_seg = tail_rest[:hp] if m_hr and hp > 0 else ""
@@ -4794,9 +5177,12 @@ def verify_post(
             f"hr@{hp} don@{dp}",
         )
     else:
-        cp = c.find("Photo:")
+        _mphoto = re.search(r"(?i)photo:", c)
+        cp = _mphoto.start() if _mphoto else -1
         hp = c.find("<hr />")
         dp = c.find("CLICK HERE TO DONATE")
+        if dp < 0:
+            dp = c.find(DONATION_CTA_TEXT_DCR)
         chk("Order: citation → hr → donation", 0 <= cp < hp < dp, f"{cp}→{hp}→{dp}")
 
     passed = sum(1 for _, ok in checks if ok)
@@ -5724,14 +6110,20 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
                 meta, excerpt_long, min_len=meta_min, max_len=meta_max
             )
 
-    if client_src and site["key"] == "cd":
+    if site["key"] == "dcr":
+        focus = dcr_single_word_focus_from_title(title)
+        meta = dcr_ensure_focus_in_title_and_meta(title, meta, focus, meta_max)
+
+    if client_src and site["key"] in ("cd", "dcr"):
         _hero_src_strip = client_src.strip()
         _bsoup = BeautifulSoup(body, "html.parser")
         for _img in list(_bsoup.find_all("img")):
             if (_img.get("src") or "").strip() == _hero_src_strip:
                 _img.decompose()
         body = str(_bsoup)
-    credit_by_src = cd_body_image_credit_hrefs_by_src_key(ghtml) if site["key"] == "cd" else {}
+    credit_by_src = (
+        cd_body_image_credit_hrefs_by_src_key(ghtml) if site["key"] in ("cd", "dcr") else {}
+    )
     if site["key"] == "cd":
         try:
             from corpus_compare import compare_doc_to_corpora
@@ -5750,7 +6142,7 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
             print(f"[1c] Corpus scorecard skipped: {ex}")
     if site["key"] == "cd":
         body = normalize_cd_body_vertical_spacing(body)
-    if site["key"] == "cd" and client_src:
+    if site["key"] in ("cd", "dcr") and client_src:
         # Early guaranteed strip: hero must never appear in body under any circumstances.
         body = cd_guaranteed_hero_strip(body, client_src, label="early")
         body = remove_client_hero_image_from_body_html(body, client_src)
@@ -5783,6 +6175,15 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
     body = normalize_cd_body_support_links_for_dofollow(site, body)
     body = ensure_all_http_links_target_blank(body)
     _img_src_credits = ""
+    if site["key"] == "dcr":
+        body = dcr_reupload_inline_body_images(
+            site,
+            body,
+            topic_slug=topic,
+            post_title=title,
+            hero_src_to_skip=(client_src or "").strip(),
+            credit_by_src=credit_by_src,
+        )
     if site["key"] == "cd":
         body = cd_deduplicate_inline_body_images(
             body, hero_src_to_skip=(client_src or "").strip(), site=site
@@ -5821,6 +6222,8 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
         focus = refine_focus_keyword_for_content(
             focus, body=body, doc_html=ghtml, title=title, topic_slug=topic
         )
+    elif site["key"] == "dcr" and client_src:
+        body = cd_guaranteed_hero_strip(body, client_src, label="final")
 
     print(f"[2] Title: {title}")
     used_client_hero = False
@@ -5868,16 +6271,40 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
             prov_label = f"{photographer_override} via {_dom}"
             print(f"[cite] Photographer override: {prov_label!r}")
 
+        if site["key"] == "dcr" and not (prov_label or "").strip() and hero_credit_url:
+            _ux, _lx = dcr_resolve_inline_credit(hero_credit_url)
+            if _lx:
+                prov_label = _lx
+            if _ux:
+                prov_url = _ux
+
         hero_img, social_img = build_resized_pair_from_pil(site, pil)
         p_name = prov_label
         p_profile = prov_url or "https://www.pexels.com/"
-        cite = client_photo_citation_html(prov_url, prov_label)
-        client_unknown_credit = not prov_url and not (prov_label or "").strip()
-        cap = (
-            ""
-            if client_unknown_credit
-            else (f"Photo: {(prov_label or '').strip()}".strip() or "Photo")
-        )
+        if site["key"] == "dcr":
+            cite = dcr_tail_photo_citation_html(prov_url, (prov_label or "").strip())
+            _lab = (prov_label or "").strip()
+            if prov_url:
+                cap = dcr_photo_caption_markup_html(prov_url, _lab or "supplied")
+            elif _lab:
+                cap = (
+                    '<p style="display:block;margin:0 auto;text-align:center">'
+                    f"<em>{html_module.escape(f'photo: {_lab}')}</em></p>"
+                )
+            else:
+                cap = (
+                    '<p style="display:block;margin:0 auto;text-align:center">'
+                    "<em>photo: supplied</em></p>"
+                )
+            client_unknown_credit = False
+        else:
+            cite = client_photo_citation_html(prov_url, prov_label)
+            client_unknown_credit = not prov_url and not (prov_label or "").strip()
+            cap = (
+                ""
+                if client_unknown_credit
+                else (f"Photo: {(prov_label or '').strip()}".strip() or "Photo")
+            )
         used_client_hero = True
     else:
         print(f"[3] Pexels search: {hero_q!r}")
@@ -5889,11 +6316,22 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
         if fb:
             p_name = fb
         hero_img, social_img = build_resized_pair(site, hero_pick)
-        cite = (
-            f'<p><em><a href="{p_profile}" target="_blank" rel="nofollow noopener">'
-            f"Photo: {p_name} via Pexels</a></em></p>"
-        )
-        cap = f"Photo: {p_name} via Pexels"
+        if site["key"] == "dcr":
+            cite = (
+                f'<p><em><a href="{html_module.escape(p_profile)}" target="_blank" rel="nofollow noopener">'
+                f"photo: {html_module.escape(p_name)} via Pexels</a></em></p>"
+            )
+            cap = (
+                '<p style="display:block;margin:0 auto;text-align:center">'
+                f'<em><a href="{html_module.escape(p_profile)}" target="_blank" rel="noopener">'
+                f"{html_module.escape(f'photo: {p_name} via Pexels')}</a></em></p>"
+            )
+        else:
+            cite = (
+                f'<p><em><a href="{p_profile}" target="_blank" rel="nofollow noopener">'
+                f"Photo: {p_name} via Pexels</a></em></p>"
+            )
+            cap = f"Photo: {p_name} via Pexels"
 
     if hero_img.size != (site["hero_w"], site["hero_h"]):
         raise RuntimeError(
@@ -5906,8 +6344,13 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
             f"expected ({site['social_w']}×{site['social_h']})"
         )
 
-    post_title = title  # always the verbatim H1 — never shortened
+    post_title = title  # verbatim H1 from the Doc (may be clipped for DCR title_max)
     post_title_trimmed = False
+    if site["key"] == "dcr":
+        tm = int(site["title_max"])
+        if len(post_title) > tm:
+            post_title = _clip_at_sentence_boundary(post_title, tm)
+            post_title_trimmed = True
 
     if site["key"] == "cd":
         pd = cd_delete_cd_drafts_matching_title(site, post_title)
@@ -5992,7 +6435,7 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
     social_url = social_media.get("source_url") or ""
     print(f"[img-url] SOCIAL src: {social_url}")
 
-    if site["key"] == "cd" and (hero_url or "").strip():
+    if site["key"] in ("cd", "dcr") and (hero_url or "").strip():
         _hu = hero_url.strip()
         _bsoup_hu = BeautifulSoup(body, "html.parser")
         _hu_removed = 0
@@ -6014,6 +6457,9 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
         tail = "<!--scoutmonkeys-machine-tail-->\n<hr />\n" + donation_html_for(site)
     content = body.rstrip() + "\n" + tail
 
+    if site["key"] == "dcr":
+        seo_title = (seo_title or title or "")[: int(site["seo_title_max"])]
+
     seo = {
         "focus_keyword": focus,
         "seo_title": seo_title,
@@ -6021,11 +6467,18 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
         "excerpt": meta,
     }
 
+    cat_ids_opt: Optional[List[int]] = None
     if cr and site["key"] == "cd":
         cat_id, cat_note = resolve_cd_sponsored_category(
             site, category_hint=cat_hint, topic_slug=topic, title=title
         )
         print(f"[6] WordPress category id={cat_id} ({cat_note})")
+    elif site["key"] == "dcr":
+        cat_ids_opt, cat_note = resolve_dcr_post_categories(
+            site, title=title, topic_slug=topic, cat_hint=cat_hint
+        )
+        cat_id = cat_ids_opt[0]
+        print(f"[6] WordPress categories={cat_ids_opt} ({cat_note})")
     else:
         cat_id = resolve_default_category(site, cat_hint)
 
@@ -6042,6 +6495,7 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
         hero_id=hero_id,
         social_url=social_url,
         excerpt=seo["excerpt"],
+        category_ids=cat_ids_opt,
         gdoc_url=gdoc_url,
     )
     post_id = int(post["id"])
@@ -6075,7 +6529,13 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
         post_id,
         seo,
         social_url,
-        seo_title_max=(60 if site["key"] == "cd" else (500 if cr else None)),
+        seo_title_max=(
+            60
+            if site["key"] == "cd"
+            else int(site["seo_title_max"])
+            if site["key"] == "dcr"
+            else (500 if cr else None)
+        ),
     )
 
     sid = int(social_id)
