@@ -3960,7 +3960,7 @@ def resolve_default_category(site: dict, hint: str) -> int:
     raise RuntimeError("Could not resolve a default WordPress category id")
 
 
-def create_wp_draft(
+(
     site: dict,
     title: str,
     content: str,
@@ -3988,6 +3988,8 @@ def create_wp_draft(
         "author": site["author_id"],
     }
     r = wp_sess.post(f"{wp}/wp-json/wp/v2/posts", json=payload, timeout=120)
+    if not r.ok:
+        print(f"[error] WP draft failed {r.status_code}: {r.text[:500]}")
     r.raise_for_status()
     post = r.json()
     return post
@@ -4107,7 +4109,7 @@ def push_aioseo_and_cdseo(
         aio_ok = False
         # postId must be in the JSON body only — adding it as a URL query param causes
         # WordPress REST to misparse the combined request and return "Post ID is missing."
-        r = wp_sess.post(f"{wp}/wp-json/aioseo/v1/post", json=body, timeout=90)
+        r = wp_sess.post(f"{wp}/wp-jdef create_wp_draftson/aioseo/v1/post", json=body, timeout=90)
         if r.ok:
             aio_ok = True
         else:
