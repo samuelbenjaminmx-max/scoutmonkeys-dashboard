@@ -1,5 +1,5 @@
 """
-Scoutmonkeys publishing pipeline: Google Doc → WordPress draft (CD / DCR) with QA + Twilio SMS.
+Scoutmonkeys publishing pipeline: Google Doc → WordPress draft (CD / DCR) with QA + Twilio SMS notifications.
 
 Environment variables are documented in CLAUDE.md. Run:
 
@@ -45,13 +45,9 @@ PEXELS_KEY = os.environ.get("PEXELS_API_KEY", "")
 
 TWILIO_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
 TWILIO_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
-TWILIO_FROM = os.environ.get("TWILIO_WHATSAPP_FROM", "")
 TWILIO_SMS_FROM = os.environ.get("TWILIO_SMS_FROM", "")
 SMS_FALLBACK_E164 = "+5215549571586"
-SMS_TO = (os.environ.get("SMS_TO") or os.environ.get("WHATSAPP_PHONE") or "").strip() or SMS_FALLBACK_E164
-# Legacy WhatsApp vars kept for reference only.
-WA_TO = os.environ.get("WHATSAPP_TO")
-WA_PHONE = (os.environ.get("WHATSAPP_PHONE") or "").strip() or SMS_FALLBACK_E164
+SMS_TO = (os.environ.get("SMS_TO") or "").strip() or SMS_FALLBACK_E164
 
 try:
     OUR_FRIENDS_AUTHOR_ID = int(os.environ.get("OUR_FRIENDS_AUTHOR_ID", "19"))
@@ -62,18 +58,15 @@ except (ValueError, TypeError):
 def _refresh_runtime_env_from_os() -> None:
     """Re-read env-backed module globals (needed after `_apply_repo_dotenv_for_cli()`)."""
     global ANTHROPIC_KEY, ANTHROPIC_MODEL, PEXELS_KEY
-    global TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM, TWILIO_SMS_FROM, SMS_TO, WA_TO, WA_PHONE
+    global TWILIO_SID, TWILIO_TOKEN, TWILIO_SMS_FROM, SMS_TO
     global OUR_FRIENDS_AUTHOR_ID
     ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
     ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
     PEXELS_KEY = os.environ.get("PEXELS_API_KEY", "")
     TWILIO_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
     TWILIO_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
-    TWILIO_FROM = os.environ.get("TWILIO_WHATSAPP_FROM", "")
     TWILIO_SMS_FROM = os.environ.get("TWILIO_SMS_FROM", "")
-    SMS_TO = (os.environ.get("SMS_TO") or os.environ.get("WHATSAPP_PHONE") or "").strip() or SMS_FALLBACK_E164
-    WA_TO = os.environ.get("WHATSAPP_TO")
-    WA_PHONE = (os.environ.get("WHATSAPP_PHONE") or "").strip() or SMS_FALLBACK_E164
+    SMS_TO = (os.environ.get("SMS_TO") or "").strip() or SMS_FALLBACK_E164
     try:
         OUR_FRIENDS_AUTHOR_ID = int(os.environ.get("OUR_FRIENDS_AUTHOR_ID", "19"))
     except (ValueError, TypeError):
@@ -99,7 +92,10 @@ def _site_cd() -> dict:
         "social_h": 1400,
         "title_max": 60,
         "seo_title_max": 60,
+        "meta_description_max": 160,
+        "meta_description_min": 120,
         "author_id": OUR_FRIENDS_AUTHOR_ID,
+        "default_category_slugs": ("our-friends", "friends", "sponsored"),
     }
 
 
@@ -114,20 +110,26 @@ def _safe_int_env(key: str, default: int) -> int:
 
 
 def _site_dcr() -> dict:
+    wp_url = (os.environ.get("WP_URL_DCR") or os.environ.get("DCR_WP_URL") or "").rstrip("/")
+    wp_user = os.environ.get("WP_USER_DCR") or os.environ.get("DCR_WP_USER") or ""
+    wp_pass = os.environ.get("WP_PASS_DCR") or os.environ.get("DCR_WP_PASS") or ""
     return {
         "key": "dcr",
-        "site_label": "Daily Cheltenham Review",
+        "site_label": "DCReport",
         "prefix": "DCR",
-        "wp_url": os.environ.get("DCR_WP_URL", "").rstrip("/"),
-        "wp_user": os.environ.get("DCR_WP_USER", ""),
-        "wp_pass": os.environ.get("DCR_WP_PASS", ""),
-        "hero_w": _safe_int_env("DCR_HERO_W", 1200),
-        "hero_h": _safe_int_env("DCR_HERO_H", 675),
-        "social_w": _safe_int_env("DCR_SOCIAL_W", 1200),
-        "social_h": _safe_int_env("DCR_SOCIAL_H", 630),
+        "wp_url": wp_url,
+        "wp_user": wp_user,
+        "wp_pass": wp_pass,
+        "hero_w": _safe_int_env("DCR_HERO_W", 814),
+        "hero_h": _safe_int_env("DCR_HERO_H", 532),
+        "social_w": _safe_int_env("DCR_SOCIAL_W", 814),
+        "social_h": _safe_int_env("DCR_SOCIAL_H", 532),
         "title_max": 65,
         "seo_title_max": 65,
-        "author_id": _safe_int_env("DCR_AUTHOR_ID", 1),
+        "meta_description_max": 140,
+        "meta_description_min": 1,
+        "author_id": _safe_int_env("DCR_AUTHOR_ID", 99),
+        "default_category_slugs": ("our-friends", "friends"),
     }
 
 
@@ -136,10 +138,7 @@ SITES: Dict[str, dict] = {"cd": _site_cd()}
 
 def _refresh_sites() -> None:
     global SITES
-    SITES = {"cd": _site_cd()}
-    d = _site_dcr()
-    if d["wp_url"] and d["wp_user"] and d["wp_pass"]:
-        SITES["dcr"] = d
+    SITES = {"cd": _site_cd(), "dcr": _site_dcr()}
 
 
 _refresh_sites()
@@ -230,8 +229,8 @@ def donation_html_for(site: dict) -> str:
     if custom:
         return custom
     return (
-        '<p><strong><a href="#" target="_blank" rel="nofollow noopener">'
-        "CLICK HERE TO DONATE NOW!</a></strong></p>"
+        '<p><strong><a href="https://www.dcreport.org/donate/" target="_blank" rel="nofollow noopener">'
+        "CLICK HERE TO DONATE IN SUPPORT OF DCREPORT'S NONPROFIT MISSION</a></strong></p>"
     )
 
 
@@ -2610,7 +2609,13 @@ def build_cd_aioseo_seo_title(full_h1: str, planner_hint: str) -> str:
     return (t[:budget].rstrip() + suf)[:lim]
 
 
-def ensure_meta_description_length(meta: str, filler_plain: str) -> str:
+def ensure_meta_description_length(
+    meta: str,
+    filler_plain: str,
+    *,
+    min_len: int = META_DESCRIPTION_MIN,
+    max_len: int = META_DESCRIPTION_MAX,
+) -> str:
     """
     Clip meta description to META_DESCRIPTION_MAX chars; pad toward META_DESCRIPTION_MIN
     using article content only. Never appends '...' — always clips at a sentence or word
@@ -2620,15 +2625,15 @@ def ensure_meta_description_length(meta: str, filler_plain: str) -> str:
     m = unicodedata.normalize("NFKC", _strip_ellipsis((meta or "").strip()))
     if _meta_has_boilerplate(m):
         m = ""
-    if len(m) > META_DESCRIPTION_MAX - 1:
-        m = _clip_at_sentence_boundary(m, META_DESCRIPTION_MAX - 1)
-    if len(m) >= META_DESCRIPTION_MIN:
-        result = _enforce_meta_period(_strip_ellipsis(m[:META_DESCRIPTION_MAX - 1]))
+    if len(m) > max_len - 1:
+        m = _clip_at_sentence_boundary(m, max_len - 1)
+    if len(m) >= min_len:
+        result = _enforce_meta_period(_strip_ellipsis(m[: max_len - 1]))
         if not _meta_has_boilerplate(result):
             return result
         m = ""
     if m and fill:
-        room = META_DESCRIPTION_MIN - len(m) - 1
+        room = min_len - len(m) - 1
         if room > 0:
             extra = fill[: room + 120].rsplit(" ", 1)[0]
             if len(extra) > room:
@@ -2636,24 +2641,26 @@ def ensure_meta_description_length(meta: str, filler_plain: str) -> str:
             if extra:
                 m = (m + " " + extra).strip()
     elif fill:
-        m = _clip_at_sentence_boundary(fill, META_DESCRIPTION_MAX - 1)
+        m = _clip_at_sentence_boundary(fill, max_len - 1)
     m = _strip_ellipsis(m)
     if _meta_has_boilerplate(m):
         m = m[: m.lower().find(next(p for p in _META_FORBIDDEN_PHRASES if p in m.lower()))].rstrip(" .,;")
-    return _enforce_meta_period(_strip_ellipsis(m[:META_DESCRIPTION_MAX - 1]))
+    return _enforce_meta_period(_strip_ellipsis(m[: max_len - 1]))
 
 
-def _generate_meta_from_body(body_plain: str, title: str) -> str:
+def _generate_meta_from_body(
+    body_plain: str, title: str, *, min_len: int = META_DESCRIPTION_MIN, max_len: int = META_DESCRIPTION_MAX
+) -> str:
     """
     Ask Claude to write a fresh 120–160 char meta description from the article body.
     Falls back to body-derived text if the Claude call fails or returns boilerplate.
     """
     excerpt = re.sub(r"\s+", " ", (body_plain or "").strip())[:6000]
     if not excerpt:
-        return ensure_meta_description_length("", "")
+        return ensure_meta_description_length("", "", min_len=min_len, max_len=max_len)
     system = (
         "Write one or two complete SEO meta description sentences about this article. "
-        f"Total length must be between {META_DESCRIPTION_MIN} and {META_DESCRIPTION_MAX} characters. "
+        f"Total length must be between {min_len} and {max_len} characters. "
         "Every sentence must be grammatically complete. "
         "The final character must be a period. "
         "Never end with a conjunction, preposition, or article (e.g. 'and', 'or', 'the', 'in'). "
@@ -2664,15 +2671,20 @@ def _generate_meta_from_body(body_plain: str, title: str) -> str:
     try:
         raw = _anthropic_messages(system, user, temperature=0.3)
         candidate = _enforce_meta_period(_strip_ellipsis(re.sub(r"\s+", " ", raw.strip())))
-        candidate = _clip_to_complete_sentence(candidate, META_DESCRIPTION_MAX - 1)
+        candidate = _clip_to_complete_sentence(candidate, max_len - 1)
         candidate = _enforce_meta_period(candidate)
-        if not _meta_has_boilerplate(candidate) and META_DESCRIPTION_MIN <= len(candidate) <= META_DESCRIPTION_MAX:
+        if not _meta_has_boilerplate(candidate) and min_len <= len(candidate) <= max_len:
             return candidate
         # Out of range or tainted — run through normaliser with body as filler
-        return ensure_meta_description_length(candidate if not _meta_has_boilerplate(candidate) else "", excerpt)
+        return ensure_meta_description_length(
+            candidate if not _meta_has_boilerplate(candidate) else "",
+            excerpt,
+            min_len=min_len,
+            max_len=max_len,
+        )
     except Exception as exc:
         print(f"[warn] _generate_meta_from_body Claude call failed ({exc!r}) — deriving from body text")
-        return ensure_meta_description_length("", excerpt)
+        return ensure_meta_description_length("", excerpt, min_len=min_len, max_len=max_len)
 
 
 _METADATA_LABEL_PREFIXES: Tuple[str, ...] = (
@@ -3309,13 +3321,11 @@ def _cd_category_slug_candidates(category_hint: str, topic_slug: str) -> List[st
 def resolve_wp_category_id_by_slug(
     site: dict, slug: str, *, for_cd_sponsor: bool
 ) -> Optional[int]:
-    wp, auth = wp_auth(site)
+    wp, wp_sess = wp_auth(site)
     slug = (slug or "").strip().lower()
     if not slug:
         return None
-    r = requests.get(
-        f"{wp}/wp-json/wp/v2/categories",
-        auth=auth,
+    r = wp_sess.get(f"{wp}/wp-json/wp/v2/categories",
         params={"slug": slug, "per_page": 5},
         timeout=30,
     )
@@ -3446,11 +3456,9 @@ def assert_cd_social_attachment_stored_dimensions(
 
 
 def resolve_check_this_out_category(site: dict) -> int:
-    wp, auth = wp_auth(site)
+    wp, wp_sess = wp_auth(site)
     for slug in ("check-this-out", "check-this-out-1", "check-this-out-2"):
-        r = requests.get(
-            f"{wp}/wp-json/wp/v2/categories",
-            auth=auth,
+        r = wp_sess.get(f"{wp}/wp-json/wp/v2/categories",
             params={"slug": slug},
             timeout=30,
         )
@@ -3458,9 +3466,7 @@ def resolve_check_this_out_category(site: dict) -> int:
         rows = r.json()
         if rows:
             return int(rows[0]["id"])
-    r = requests.get(
-        f"{wp}/wp-json/wp/v2/categories",
-        auth=auth,
+    r = wp_sess.get(f"{wp}/wp-json/wp/v2/categories",
         params={"search": "Check This Out", "per_page": 30},
         timeout=30,
     )
@@ -3491,8 +3497,22 @@ def photographer_meta(photo: dict) -> Tuple[str, str, str]:
 # ---------------------------------------------------------------------------
 
 
-def wp_auth(site: dict) -> Tuple[str, Tuple[str, str]]:
-    return site["wp_url"], (site["wp_user"], site["wp_pass"])
+def wp_auth(site: dict) -> Tuple[str, requests.Session]:
+    """Return base URL and a Session with HTTP Basic auth.
+
+    DCReport (and some other hosts) return nginx ``403`` for the default
+    ``python-requests`` User-Agent on authenticated REST routes; mimic WordPress.
+    Override with ``WP_REST_USER_AGENT`` for any site.
+    """
+    wp = (site.get("wp_url") or "").rstrip("/")
+    sess = requests.Session()
+    sess.auth = (site.get("wp_user") or "", site.get("wp_pass") or "")
+    ua_override = (os.environ.get("WP_REST_USER_AGENT") or "").strip()
+    if ua_override:
+        sess.headers["User-Agent"] = ua_override
+    elif site.get("key") == "dcr":
+        sess.headers["User-Agent"] = f"WordPress/6.4; {wp}"
+    return wp, sess
 
 
 def cd_social_upload_should_use_png(site: dict) -> bool:
@@ -3525,7 +3545,7 @@ def wp_upload_image(
     mu-plugin ``wordpress-mu-plugins/cd-pipeline-preserve-social-upload.php`` can disable
     WordPress downscaling so ``media_details`` stays **1920×1400**.
     """
-    wp, auth = wp_auth(site)
+    wp, wp_sess = wp_auth(site)
     buf = io.BytesIO()
     fmt = (image_format or "JPEG").strip().upper()
     if fmt == "PNG":
@@ -3537,7 +3557,7 @@ def wp_upload_image(
     buf.seek(0)
     files = {"file": (filename, buf, mime)}
     hdr = dict(http_headers or {})
-    r = requests.post(f"{wp}/wp-json/wp/v2/media", auth=auth, files=files, headers=hdr, timeout=120)
+    r = wp_sess.post(f"{wp}/wp-json/wp/v2/media", files=files, headers=hdr, timeout=120)
     r.raise_for_status()
     media = r.json()
     mid = media["id"]
@@ -3546,9 +3566,7 @@ def wp_upload_image(
         "alt_text": alt,
         "caption": caption,
     }
-    r2 = requests.post(
-        f"{wp}/wp-json/wp/v2/media/{mid}",
-        auth=auth,
+    r2 = wp_sess.post(f"{wp}/wp-json/wp/v2/media/{mid}",
         json=update,
         timeout=60,
     )
@@ -3564,10 +3582,8 @@ def wp_upload_image(
 
 def cd_delete_wp_media_attachment(site: dict, media_id: int) -> None:
     """Permanently delete a media item (used to drop a wrong-size social before JPEG retry)."""
-    wp, auth = wp_auth(site)
-    r = requests.delete(
-        f"{wp}/wp-json/wp/v2/media/{int(media_id)}",
-        auth=auth,
+    wp, wp_sess = wp_auth(site)
+    r = wp_sess.delete(f"{wp}/wp-json/wp/v2/media/{int(media_id)}",
         params={"force": "true"},
         timeout=60,
     )
@@ -3580,13 +3596,11 @@ def cd_delete_slug_prefix_media_attachments(site: dict, prefix: str, slug: str) 
     Called before each new upload to prevent orphan accumulation from failed runs."""
     if site.get("key") != "cd":
         return []
-    wp, auth = wp_auth(site)
+    wp, wp_sess = wp_auth(site)
     search_prefixes = [f"{prefix}-{slug}-hero", f"{prefix}-{slug}-social", f"{prefix}-{slug}-Insert"]
     deleted: List[int] = []
     for term in search_prefixes:
-        r = requests.get(
-            f"{wp}/wp-json/wp/v2/media",
-            auth=auth,
+        r = wp_sess.get(f"{wp}/wp-json/wp/v2/media",
             params={"search": term, "per_page": 100, "orderby": "date", "order": "desc"},
             timeout=30,
         )
@@ -3616,13 +3630,11 @@ def wp_upload_jpeg(
 
 def cd_resolve_media_id_by_title(site: dict, title: str) -> Optional[int]:
     """Find a media attachment whose title matches exactly (REST ``search`` + local filter)."""
-    wp, auth = wp_auth(site)
+    wp, wp_sess = wp_auth(site)
     t = html_module.unescape((title or "").strip())
     if not t:
         return None
-    r = requests.get(
-        f"{wp}/wp-json/wp/v2/media",
-        auth=auth,
+    r = wp_sess.get(f"{wp}/wp-json/wp/v2/media",
         params={"search": t, "per_page": 50, "orderby": "date", "order": "desc"},
         timeout=30,
     )
@@ -3645,7 +3657,7 @@ def cd_sync_inline_attachment_alts_from_body(site: dict, body_html: str) -> None
     if site.get("key") != "cd" or not (body_html or "").strip():
         return
     soup = BeautifulSoup(body_html, "html.parser")
-    wp, auth = wp_auth(site)
+    wp, wp_sess = wp_auth(site)
     seen: set[int] = set()
     for img in soup.find_all("img"):
         cls = img.get("class") or []
@@ -3675,9 +3687,7 @@ def cd_sync_inline_attachment_alts_from_body(site: dict, body_html: str) -> None
             payload["title"] = tit
         if not payload:
             continue
-        r = requests.post(
-            f"{wp}/wp-json/wp/v2/media/{mid}",
-            auth=auth,
+        r = wp_sess.post(f"{wp}/wp-json/wp/v2/media/{mid}",
             json=payload,
             timeout=30,
         )
@@ -3772,7 +3782,7 @@ def cd_reupload_inline_body_images(
         except Exception:
             hero_refs = []
     cred = credit_by_src or {}
-    wp_u, auth_u = wp_auth(site)
+    wp_u, wp_sess_u = wp_auth(site)
     _rights_cache: dict[str, tuple[str, str]] = {}
 
     def _credit_page_for_src(s: str) -> str:
@@ -3863,9 +3873,7 @@ def cd_reupload_inline_body_images(
                     changed = True
                 if pd_plain and mid is not None:
                     try:
-                        requests.post(
-                            f"{wp_u}/wp-json/wp/v2/media/{int(mid)}",
-                            auth=auth_u,
+                        wp_sess_u.post(f"{wp_u}/wp-json/wp/v2/media/{int(mid)}",
                             json={"caption": pd_plain},
                             timeout=30,
                         )
@@ -3931,11 +3939,9 @@ def cd_reupload_inline_body_images(
 
 
 def resolve_default_category(site: dict, hint: str) -> int:
-    wp, auth = wp_auth(site)
-    for slug in ("our-friends", "friends", "sponsored"):
-        r = requests.get(
-            f"{wp}/wp-json/wp/v2/categories",
-            auth=auth,
+    wp, wp_sess = wp_auth(site)
+    for slug in tuple(site.get("default_category_slugs") or ("our-friends", "friends", "sponsored")):
+        r = wp_sess.get(f"{wp}/wp-json/wp/v2/categories",
             params={"slug": slug},
             timeout=30,
         )
@@ -3943,9 +3949,7 @@ def resolve_default_category(site: dict, hint: str) -> int:
         rows = r.json()
         if rows:
             return int(rows[0]["id"])
-    r = requests.get(
-        f"{wp}/wp-json/wp/v2/categories",
-        auth=auth,
+    r = wp_sess.get(f"{wp}/wp-json/wp/v2/categories",
         params={"search": hint, "per_page": 20},
         timeout=30,
     )
@@ -3968,7 +3972,7 @@ def create_wp_draft(
     *,
     gdoc_url: str = "",
 ) -> dict:
-    wp, auth = wp_auth(site)
+    wp, wp_sess = wp_auth(site)
     # Embed source Google Doc URL as an HTML comment so it's always recoverable
     # (used by scripts/build_matched_pairs.py to grow the training dataset)
     tracked_content = content
@@ -3983,7 +3987,7 @@ def create_wp_draft(
         "excerpt": excerpt,
         "author": site["author_id"],
     }
-    r = requests.post(f"{wp}/wp-json/wp/v2/posts", auth=auth, json=payload, timeout=120)
+    r = wp_sess.post(f"{wp}/wp-json/wp/v2/posts", json=payload, timeout=120)
     r.raise_for_status()
     post = r.json()
     return post
@@ -3992,9 +3996,7 @@ def create_wp_draft(
 def _aioseo_get_current(wp: str, auth: tuple, pid: int) -> dict:
     """Return the currentPost dict from AIOSEO GET, or {} on failure."""
     try:
-        g = requests.get(
-            f"{wp}/wp-json/aioseo/v1/post?postId={pid}",
-            auth=auth,
+        g = wp_sess.get(f"{wp}/wp-json/aioseo/v1/post?postId={pid}",
             timeout=30,
         )
         if g.ok:
@@ -4022,8 +4024,9 @@ def push_aioseo_and_cdseo(
     reverts to the site-wide default.  The GET-then-merge approach is the only
     safe way to do a partial update.
     """
-    wp, auth = wp_auth(site)
+    wp, wp_sess = wp_auth(site)
     st_clip = int(seo_title_max) if seo_title_max is not None else int(site["seo_title_max"])
+    md_clip = int(site.get("meta_description_max") or 160)
     pid = int(post_id)
 
     # --- 1. Read current AIOSEO state (base for all fields we are not changing)
@@ -4051,7 +4054,7 @@ def push_aioseo_and_cdseo(
     fk = (seo.get("focus_keyword") or "").strip()
 
     final_title  = st[:st_clip] if st else cur_title
-    final_desc   = _enforce_meta_period(md[:160]) if md else _enforce_meta_period(cur_desc)
+    final_desc   = _enforce_meta_period(md[:md_clip]) if md else _enforce_meta_period(cur_desc[:md_clip])
     final_og_url = og_custom_url if og_custom_url else cur_og_url
     final_og_type = "custom_image" if final_og_url else cur_og_type
 
@@ -4104,19 +4107,19 @@ def push_aioseo_and_cdseo(
         aio_ok = False
         # postId must be in the JSON body only — adding it as a URL query param causes
         # WordPress REST to misparse the combined request and return "Post ID is missing."
-        r = requests.post(f"{wp}/wp-json/aioseo/v1/post", auth=auth, json=body, timeout=90)
+        r = wp_sess.post(f"{wp}/wp-json/aioseo/v1/post", json=body, timeout=90)
         if r.ok:
             aio_ok = True
         else:
             aio_warn = f"{r.status_code}: {r.text[:320]}"
-            r2 = requests.post(f"{wp}/wp-json/aioseo/v1/post/{pid}", auth=auth, json=body, timeout=90)
+            r2 = wp_sess.post(f"{wp}/wp-json/aioseo/v1/post/{pid}", json=body, timeout=90)
             if r2.ok:
                 aio_ok = True
             else:
                 aio_warn = aio_warn + f" | path {r2.status_code}: {r2.text[:220]}"
 
         time.sleep(0.35)
-        r_cd = requests.post(f"{wp}/wp-json/cd-seo/v1/update", auth=auth, json=cd_payload, timeout=90)
+        r_cd = wp_sess.post(f"{wp}/wp-json/cd-seo/v1/update", json=cd_payload, timeout=90)
         if r_cd.ok:
             cd_warn = ""
         else:
@@ -4144,13 +4147,11 @@ def find_social_attachment_by_title(site: dict, topic_slug: str, hero_id: int) -
     Resolve the ``{prefix}-{topic}-social`` media row (newest first when duplicates exist).
     Never returns ``hero_id``.
     """
-    wp, auth = wp_auth(site)
+    wp, wp_sess = wp_auth(site)
     prefix = (site.get("prefix") or "").strip()
     slug = re.sub(r"[^a-z0-9-]+", "-", (topic_slug or "topic").lower()).strip("-") or "topic"
     need = f"{prefix}-{slug}-social"
-    r = requests.get(
-        f"{wp}/wp-json/wp/v2/media",
-        auth=auth,
+    r = wp_sess.get(f"{wp}/wp-json/wp/v2/media",
         params={"search": need, "per_page": 80, "orderby": "date", "order": "desc"},
         timeout=30,
     )
@@ -4172,9 +4173,7 @@ def find_social_attachment_by_title(site: dict, topic_slug: str, hero_id: int) -
 
 
 def resolve_social_id(wp: str, auth, post_id: int, hero_id: int) -> Optional[int]:
-    _raio = requests.get(
-        f"{wp}/wp-json/aioseo/v1/post?postId={post_id}",
-        auth=auth,
+    _raio = wp_sess.get(f"{wp}/wp-json/aioseo/v1/post?postId={post_id}",
         timeout=30,
     )
     aioseo = _raio.json() if _raio.ok else {}
@@ -4187,9 +4186,7 @@ def resolve_social_id(wp: str, auth, post_id: int, hero_id: int) -> Optional[int
     m = re.search(r"/([^/]+)\.(?:jpg|jpeg|png|webp)(?:\?|$)", og, re.I)
     slug = m.group(1) if m else None
     if slug:
-        r = requests.get(
-            f"{wp}/wp-json/wp/v2/media",
-            auth=auth,
+        r = wp_sess.get(f"{wp}/wp-json/wp/v2/media",
             params={"search": slug, "per_page": 30},
             timeout=30,
         )
@@ -4339,6 +4336,22 @@ def canonicalize_body_http_links_cd(site: dict, body_html: str) -> str:
     return str(soup) if changed else body_html
 
 
+def ensure_all_http_links_target_blank(body_html: str) -> str:
+    """Normalize every outbound http(s) body anchor to target=_blank."""
+    if not (body_html or "").strip():
+        return body_html
+    soup = BeautifulSoup(body_html, "html.parser")
+    changed = False
+    for a in soup.find_all("a"):
+        href = (a.get("href") or "").strip()
+        if not re.match(r"https?://", href, re.I):
+            continue
+        if (a.get("target") or "").lower() != "_blank":
+            a["target"] = "_blank"
+            changed = True
+    return str(soup) if changed else body_html
+
+
 def _html_before_machine_tail(raw: str) -> str:
     """Strip machine citation + donation tail so body-only <a> tags can be audited."""
     if "<!--scoutmonkeys-machine-tail-->" in raw:
@@ -4427,26 +4440,22 @@ def verify_post(
     The `seo` dict is accepted for backwards compatibility; live values are read from WP.
     """
     print(f"\n[QA] Verifying post {post_id}…")
-    wp, auth = wp_auth(site)
+    wp, wp_sess = wp_auth(site)
     prefix = site["prefix"]
 
-    _rpost = requests.get(
-        f"{wp}/wp-json/wp/v2/posts/{post_id}?context=edit", auth=auth, timeout=30
+    _rpost = wp_sess.get(f"{wp}/wp-json/wp/v2/posts/{post_id}?context=edit", timeout=30
     )
     _rpost.raise_for_status()
     post = _rpost.json()
-    _rhero = requests.get(
-        f"{wp}/wp-json/wp/v2/media/{hero_id}?context=edit", auth=auth, timeout=30
+    _rhero = wp_sess.get(f"{wp}/wp-json/wp/v2/media/{hero_id}?context=edit", timeout=30
     )
     _rhero.raise_for_status()
     hero = _rhero.json()
-    _rsoc = requests.get(
-        f"{wp}/wp-json/wp/v2/media/{social_id}?context=edit", auth=auth, timeout=30
+    _rsoc = wp_sess.get(f"{wp}/wp-json/wp/v2/media/{social_id}?context=edit", timeout=30
     )
     _rsoc.raise_for_status()
     soc = _rsoc.json()
-    _rseo = requests.get(
-        f"{wp}/wp-json/cd-seo/v1/read?post_id={post_id}", auth=auth, timeout=30
+    _rseo = wp_sess.get(f"{wp}/wp-json/cd-seo/v1/read?post_id={post_id}", timeout=30
     )
     if not _rseo.ok:
         print(f"[QA] ⚠ cd-seo endpoint returned {_rseo.status_code} — SEO checks will be skipped")
@@ -4503,7 +4512,8 @@ def verify_post(
             f"{len(meta)} chars",
         )
     else:
-        chk("Meta description ≤160 chars", 0 < len(meta) <= 160, f"{len(meta)} chars")
+        md_max = int(site.get("meta_description_max") or 160)
+        chk(f"Meta description ≤{md_max} chars", 0 < len(meta) <= md_max, f"{len(meta)} chars")
 
     try:
         kw = json.loads(seo_r["aioseo_db"].get("keyphrases") or "{}").get("focus", {}).get(
@@ -4553,6 +4563,12 @@ def verify_post(
             "Social attachment stored at 1920×1400 (CD; host must not downscale)",
             soc_ok,
             soc_note,
+        )
+    else:
+        chk(
+            f"Social {site['social_w']}×{site['social_h']}",
+            sw == site["social_w"] and sh == site["social_h"],
+            f"{sw}×{sh}",
         )
 
     ht = hero.get("title") or {}
@@ -4611,8 +4627,7 @@ def verify_post(
     else:
         chk("Social caption starts 'Photo:'", s_cap.startswith("Photo:"), f'"{s_cap}"')
 
-    _raioseo = requests.get(
-        f"{wp}/wp-json/aioseo/v1/post?postId={post_id}", auth=auth, timeout=30
+    _raioseo = wp_sess.get(f"{wp}/wp-json/aioseo/v1/post?postId={post_id}", timeout=30
     )
     aioseo_post = _raioseo.json() if _raioseo.ok else {}
     if not _raioseo.ok:
@@ -4650,9 +4665,7 @@ def verify_post(
                 continue
         bad_slug = ""
         if cat_ids:
-            rcat = requests.get(
-                f"{wp}/wp-json/wp/v2/categories",
-                auth=auth,
+            rcat = wp_sess.get(f"{wp}/wp-json/wp/v2/categories",
                 params={"include": ",".join(str(x) for x in cat_ids[:50]), "per_page": 50},
                 timeout=30,
             )
@@ -4665,6 +4678,31 @@ def verify_post(
                         break
         chk(
             "Post categories: no Sponsored / Featured Story (CD)",
+            not bad_slug,
+            bad_slug or "ok",
+        )
+    elif site.get("key") == "dcr":
+        cat_ids: List[int] = []
+        for x in post.get("categories") or []:
+            try:
+                cat_ids.append(int(x))
+            except (TypeError, ValueError):
+                continue
+        bad_slug = ""
+        if cat_ids:
+            rcat = wp_sess.get(f"{wp}/wp-json/wp/v2/categories",
+                params={"include": ",".join(str(x) for x in cat_ids[:50]), "per_page": 50},
+                timeout=30,
+            )
+            if rcat.ok:
+                for row in rcat.json():
+                    slug = (row.get("slug") or "").strip().lower()
+                    name = (row.get("name") or "").strip().lower()
+                    if slug == "sponsored" or name == "sponsored":
+                        bad_slug = row.get("slug") or row.get("name") or "sponsored"
+                        break
+        chk(
+            "Post category excludes Sponsored (DCR)",
             not bad_slug,
             bad_slug or "ok",
         )
@@ -4813,22 +4851,44 @@ def _apply_repo_dotenv_for_cli() -> None:
             os.environ[k] = v
 
 
+def twilio_fetch_first_incoming_sms_from_e164() -> str:
+    """Return the first Twilio IncomingPhoneNumber (E.164), or ``\"\"`` on failure."""
+    sid = (os.environ.get("TWILIO_ACCOUNT_SID") or "").strip()
+    tok = (os.environ.get("TWILIO_AUTH_TOKEN") or "").strip()
+    if not sid or not tok:
+        return ""
+    try:
+        r = requests.get(
+            f"https://api.twilio.com/2010-04-01/Accounts/{sid}/IncomingPhoneNumbers.json",
+            auth=(sid, tok),
+            timeout=30,
+        )
+        r.raise_for_status()
+        rows = (r.json() or {}).get("incoming_phone_numbers") or []
+        for row in rows:
+            pn = (row.get("phone_number") or "").strip()
+            if pn:
+                return pn
+    except Exception as exc:
+        print(f"[warn] Twilio IncomingPhoneNumbers.json failed: {exc!r}")
+    return ""
+
+
 _TWILIO_DOTENV_KEYS = frozenset(
     (
         "TWILIO_ACCOUNT_SID",
         "TWILIO_AUTH_TOKEN",
-        "TWILIO_WHATSAPP_FROM",
-        "WHATSAPP_TO",
-        "WHATSAPP_PHONE",
+        "TWILIO_SMS_FROM",
+        "SMS_TO",
     )
 )
 
 
-def _merge_repo_dotenv_twilio_whatsapp_overrides() -> None:
-    """Overwrite Twilio/WhatsApp keys from ``REPO_ROOT/.env`` when present.
+def _merge_repo_dotenv_twilio_sms_overrides() -> None:
+    """Overwrite Twilio SMS keys from ``REPO_ROOT/.env`` when present.
 
     ``_apply_repo_dotenv_for_cli`` does not override existing environment variables, but some
-    shells export placeholder ``TWILIO_*`` strings; those would block WhatsApp. Local ``.env``
+    shells export placeholder ``TWILIO_*`` strings; those would block SMS. Local ``.env``
     should win for these keys when the file defines them.
     """
     p = REPO_ROOT / ".env"
@@ -4861,7 +4921,7 @@ def _parse_topic_slug_from_attachment_title(title: str, prefix: str) -> str:
     return "topic"
 
 
-def _cd_collect_media_ids_and_slug(site: dict, wp: str, auth, post: dict) -> tuple[set[int], str]:
+def _cd_collect_media_ids_and_slug(site: dict, wp: str, wp_sess: requests.Session, post: dict) -> tuple[set[int], str]:
     """Featured media, body ``wp-image-*``, and social attachment for this draft; slug from hero title."""
     raw_content = (post.get("content") or {}).get("raw") or ""
     hero_id = int(post.get("featured_media") or 0)
@@ -4876,9 +4936,7 @@ def _cd_collect_media_ids_and_slug(site: dict, wp: str, auth, post: dict) -> tup
     slug = "topic"
     prefix = (site.get("prefix") or "CD").strip()
     if hero_id:
-        hr = requests.get(
-            f"{wp}/wp-json/wp/v2/media/{hero_id}?context=edit",
-            auth=auth,
+        hr = wp_sess.get(f"{wp}/wp-json/wp/v2/media/{hero_id}?context=edit",
             timeout=30,
         )
         if hr.ok:
@@ -4892,7 +4950,7 @@ def _cd_collect_media_ids_and_slug(site: dict, wp: str, auth, post: dict) -> tup
 
 
 def _cd_media_delete_orphans_for_slug(
-    site: dict, wp: str, auth, slug: str, prefix: str, done_set: set[int]
+    site: dict, wp: str, wp_sess: requests.Session, slug: str, prefix: str, done_set: set[int]
 ) -> tuple[list[int], list[str]]:
     """Search/delete hero+social attachments whose plain titles match ``{prefix}-{slug}-*``."""
     orphan_deleted: List[int] = []
@@ -4905,9 +4963,7 @@ def _cd_media_delete_orphans_for_slug(
         return html_module.unescape(re.sub(r"<[^>]+>", "", t)).strip().lower()
 
     for want in (f"{prefix}-{slug}-hero", f"{prefix}-{slug}-social"):
-        rm = requests.get(
-            f"{wp}/wp-json/wp/v2/media",
-            auth=auth,
+        rm = wp_sess.get(f"{wp}/wp-json/wp/v2/media",
             params={"search": want, "per_page": 15, "orderby": "date", "order": "desc"},
             timeout=30,
         )
@@ -4922,9 +4978,7 @@ def _cd_media_delete_orphans_for_slug(
                 continue
             if _tit_plain(row) != want.lower():
                 continue
-            rd = requests.delete(
-                f"{wp}/wp-json/wp/v2/media/{mid}",
-                auth=auth,
+            rd = wp_sess.delete(f"{wp}/wp-json/wp/v2/media/{mid}",
                 params={"force": "true"},
                 timeout=90,
             )
@@ -4937,17 +4991,20 @@ def _cd_media_delete_orphans_for_slug(
 
 
 def _cd_force_delete_draft_post_and_media(
-    site: dict, wp: str, auth, post_id: int, post: dict, log_prefix: str = "[purge]"
+    site: dict,
+    wp: str,
+    wp_sess: requests.Session,
+    post_id: int,
+    post: dict,
+    log_prefix: str = "[purge]",
 ) -> dict:
     """DELETE draft post ``force=true``, then attached/orphan media (same rules as purge-latest)."""
     title = (post.get("title") or {}).get("raw") or (post.get("title") or {}).get("rendered") or ""
-    media_ids, slug = _cd_collect_media_ids_and_slug(site, wp, auth, post)
+    media_ids, slug = _cd_collect_media_ids_and_slug(site, wp, wp_sess, post)
     prefix = (site.get("prefix") or "CD").strip()
 
     print(f"{log_prefix} Deleting draft post id={post_id} title={title[:80]!r}…")
-    rp = requests.delete(
-        f"{wp}/wp-json/wp/v2/posts/{post_id}",
-        auth=auth,
+    rp = wp_sess.delete(f"{wp}/wp-json/wp/v2/posts/{post_id}",
         params={"force": "true"},
         timeout=90,
     )
@@ -4957,9 +5014,7 @@ def _cd_force_delete_draft_post_and_media(
     deleted: List[int] = []
     errors: List[str] = []
     for mid in sorted(media_ids):
-        rd = requests.delete(
-            f"{wp}/wp-json/wp/v2/media/{mid}",
-            auth=auth,
+        rd = wp_sess.delete(f"{wp}/wp-json/wp/v2/media/{mid}",
             params={"force": "true"},
             timeout=90,
         )
@@ -4970,7 +5025,7 @@ def _cd_force_delete_draft_post_and_media(
 
     done_set = set(deleted)
     orphan_deleted, orphan_errs = _cd_media_delete_orphans_for_slug(
-        site, wp, auth, slug, prefix, done_set
+        site, wp, wp_sess, slug, prefix, done_set
     )
     errors.extend(orphan_errs)
 
@@ -5007,11 +5062,9 @@ def cd_delete_cd_drafts_matching_title(site: dict, post_title: str) -> dict:
     if not want:
         return out
 
-    wp, auth = wp_auth(site)
+    wp, wp_sess = wp_auth(site)
     aid = int(site["author_id"])
-    r = requests.get(
-        f"{wp}/wp-json/wp/v2/posts",
-        auth=auth,
+    r = wp_sess.get(f"{wp}/wp-json/wp/v2/posts",
         params={"status": "draft", "per_page": 50, "orderby": "date", "order": "desc"},
         timeout=30,
     )
@@ -5039,9 +5092,7 @@ def cd_delete_cd_drafts_matching_title(site: dict, post_title: str) -> dict:
     deleted_posts: List[int] = []
     all_media: List[int] = []
     for post_id in sorted(matches, reverse=True):
-        pe = requests.get(
-            f"{wp}/wp-json/wp/v2/posts/{post_id}?context=edit",
-            auth=auth,
+        pe = wp_sess.get(f"{wp}/wp-json/wp/v2/posts/{post_id}?context=edit",
             timeout=30,
         )
         if not pe.ok:
@@ -5050,7 +5101,7 @@ def cd_delete_cd_drafts_matching_title(site: dict, post_title: str) -> dict:
         post = pe.json()
         try:
             one = _cd_force_delete_draft_post_and_media(
-                site, wp, auth, post_id, post, log_prefix="[2e][cd-purge-title]"
+                site, wp, wp_sess, post_id, post, log_prefix="[2e][cd-purge-title]"
             )
         except RuntimeError as e:
             print(f"[2e][cd-purge-title] {e}")
@@ -5080,11 +5131,9 @@ def purge_latest_cd_draft() -> dict:
     site = SITES["cd"]
     if not site.get("wp_pass"):
         raise RuntimeError("WP_USER / WP_PASS not set.")
-    wp, auth = wp_auth(site)
+    wp, wp_sess = wp_auth(site)
     aid = int(site["author_id"])
-    r = requests.get(
-        f"{wp}/wp-json/wp/v2/posts",
-        auth=auth,
+    r = wp_sess.get(f"{wp}/wp-json/wp/v2/posts",
         params={
             "status": "draft",
             "per_page": 10,
@@ -5105,14 +5154,12 @@ def purge_latest_cd_draft() -> dict:
     if not ours:
         raise RuntimeError("No drafts returned from WordPress.")
     post_id = int(ours[0]["id"])
-    pe = requests.get(
-        f"{wp}/wp-json/wp/v2/posts/{post_id}?context=edit",
-        auth=auth,
+    pe = wp_sess.get(f"{wp}/wp-json/wp/v2/posts/{post_id}?context=edit",
         timeout=30,
     )
     pe.raise_for_status()
     post = pe.json()
-    out = _cd_force_delete_draft_post_and_media(site, wp, auth, post_id, post)
+    out = _cd_force_delete_draft_post_and_media(site, wp, wp_sess, post_id, post)
     print(f"[purge] Done. Deleted media ids={out['deleted_media_ids']}")
     return {
         "deleted_post_id": out["deleted_post_id"],
@@ -5139,10 +5186,8 @@ def remediate_latest_cd_draft() -> dict:
     if not site.get("wp_pass"):
         raise RuntimeError("WP_USER / WP_PASS not set (add .env or export credentials).")
 
-    wp, auth = wp_auth(site)
-    r = requests.get(
-        f"{wp}/wp-json/wp/v2/posts",
-        auth=auth,
+    wp, wp_sess = wp_auth(site)
+    r = wp_sess.get(f"{wp}/wp-json/wp/v2/posts",
         params={
             "status": "draft",
             "per_page": 20,
@@ -5164,9 +5209,7 @@ def remediate_latest_cd_draft() -> dict:
     if not ours:
         raise RuntimeError("No drafts returned from WordPress.")
     post_id = int(ours[0]["id"])
-    pe = requests.get(
-        f"{wp}/wp-json/wp/v2/posts/{post_id}?context=edit",
-        auth=auth,
+    pe = wp_sess.get(f"{wp}/wp-json/wp/v2/posts/{post_id}?context=edit",
         timeout=30,
     )
     pe.raise_for_status()
@@ -5175,9 +5218,7 @@ def remediate_latest_cd_draft() -> dict:
     if not hero_id:
         raise RuntimeError(f"Post {post_id} has no featured_media — cannot remediate images/SEO.")
 
-    _rhero_r = requests.get(
-        f"{wp}/wp-json/wp/v2/media/{hero_id}?context=edit",
-        auth=auth,
+    _rhero_r = wp_sess.get(f"{wp}/wp-json/wp/v2/media/{hero_id}?context=edit",
         timeout=30,
     )
     _rhero_r.raise_for_status()
@@ -5254,9 +5295,7 @@ def remediate_latest_cd_draft() -> dict:
         "yes",
     )
     if not skip_body:
-        rub = requests.post(
-            f"{wp}/wp-json/wp/v2/posts/{post_id}",
-            auth=auth,
+        rub = wp_sess.post(f"{wp}/wp-json/wp/v2/posts/{post_id}",
             json={"content": new_content},
             timeout=120,
         )
@@ -5265,9 +5304,7 @@ def remediate_latest_cd_draft() -> dict:
             "post body: pipeline HTML synced (CD-InsertN, dedupe, centered figures, audit format)"
         )
         raw_content = new_content
-        _rpost2 = requests.get(
-            f"{wp}/wp-json/wp/v2/posts/{post_id}?context=edit",
-            auth=auth,
+        _rpost2 = wp_sess.get(f"{wp}/wp-json/wp/v2/posts/{post_id}?context=edit",
             timeout=30,
         )
         _rpost2.raise_for_status()
@@ -5278,9 +5315,7 @@ def remediate_latest_cd_draft() -> dict:
     if not sid:
         regen_social = True
     else:
-        _rsoc3 = requests.get(
-            f"{wp}/wp-json/wp/v2/media/{int(sid)}?context=edit",
-            auth=auth,
+        _rsoc3 = wp_sess.get(f"{wp}/wp-json/wp/v2/media/{int(sid)}?context=edit",
             timeout=30,
         )
         _rsoc3.raise_for_status()
@@ -5300,9 +5335,7 @@ def remediate_latest_cd_draft() -> dict:
     cat_id, cat_note = resolve_cd_sponsored_category(
         site, category_hint=cat_lane, topic_slug=slug, title=raw_title
     )
-    rp = requests.post(
-        f"{wp}/wp-json/wp/v2/posts/{post_id}",
-        auth=auth,
+    rp = wp_sess.post(f"{wp}/wp-json/wp/v2/posts/{post_id}",
         json={"categories": [cat_id]},
         timeout=60,
     )
@@ -5347,9 +5380,7 @@ def remediate_latest_cd_draft() -> dict:
             )
             sid = int(sm["id"])
             time.sleep(0.6)
-            r_sv = requests.get(
-                f"{wp}/wp-json/wp/v2/media/{sid}?context=edit",
-                auth=auth,
+            r_sv = wp_sess.get(f"{wp}/wp-json/wp/v2/media/{sid}?context=edit",
                 timeout=30,
             )
             r_sv.raise_for_status()
@@ -5366,9 +5397,7 @@ def remediate_latest_cd_draft() -> dict:
         social_url = (sm.get("source_url") or "").strip()
         actions.append(f"reuploaded social media id={sid} {site['social_w']}×{site['social_h']}")
     else:
-        _rsoc2 = requests.get(
-            f"{wp}/wp-json/wp/v2/media/{int(sid)}?context=edit",
-            auth=auth,
+        _rsoc2 = wp_sess.get(f"{wp}/wp-json/wp/v2/media/{int(sid)}?context=edit",
             timeout=30,
         )
         _rsoc2.raise_for_status()
@@ -5381,9 +5410,7 @@ def remediate_latest_cd_draft() -> dict:
     if not social_url:
         raise RuntimeError("Could not resolve social image URL for AIOSEO.")
 
-    r_alt = requests.post(
-        f"{wp}/wp-json/wp/v2/media/{int(sid)}",
-        auth=auth,
+    r_alt = wp_sess.post(f"{wp}/wp-json/wp/v2/media/{int(sid)}",
         json={"alt_text": alt},
         timeout=60,
     )
@@ -5392,9 +5419,7 @@ def remediate_latest_cd_draft() -> dict:
     else:
         print(f"[warn] social alt_text PATCH {r_alt.status_code}: {r_alt.text[:200]}")
 
-    _seo_r2 = requests.get(
-        f"{wp}/wp-json/cd-seo/v1/read?post_id={post_id}",
-        auth=auth,
+    _seo_r2 = wp_sess.get(f"{wp}/wp-json/cd-seo/v1/read?post_id={post_id}",
         timeout=30,
     )
     seo_r = _seo_r2.json() if _seo_r2.ok else {}
@@ -5466,14 +5491,23 @@ def send_sms(
     extra_line: str = "",
 ) -> None:
     _apply_repo_dotenv_for_cli()
+    _merge_repo_dotenv_twilio_sms_overrides()
     _refresh_runtime_env_from_os()
-    if not TWILIO_SID or not TWILIO_TOKEN or not TWILIO_SMS_FROM:
-        print("[10] ⚠ SMS skipped — TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_SMS_FROM not all set")
+    sid = (os.environ.get("TWILIO_ACCOUNT_SID") or "").strip()
+    tok = (os.environ.get("TWILIO_AUTH_TOKEN") or "").strip()
+    if not sid or not tok:
+        print("[10] ⚠ SMS skipped — TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN not set")
         return
-    if TWILIO_SID == "TWILIO_ACCOUNT_SID" or TWILIO_TOKEN == "TWILIO_AUTH_TOKEN":
+    if sid == "TWILIO_ACCOUNT_SID" or tok == "TWILIO_AUTH_TOKEN":
         print("[10] ⚠ SMS skipped — Twilio env vars are still Railway placeholders")
         return
-    to = SMS_TO
+    sms_from = (os.environ.get("TWILIO_SMS_FROM") or "").strip()
+    if not sms_from:
+        sms_from = twilio_fetch_first_incoming_sms_from_e164()
+    if not sms_from:
+        print("[10] ⚠ SMS skipped — set TWILIO_SMS_FROM or add an IncomingPhoneNumber on the Twilio account")
+        return
+    to = (os.environ.get("SMS_TO") or "").strip() or SMS_FALLBACK_E164
     if not to:
         print("[10] ⚠ SMS skipped — SMS_TO not set")
         return
@@ -5491,21 +5525,17 @@ def send_sms(
         f"{qa_line}"
         f"{extra}"
     )
-    print(f"[10] Sending SMS to {to}…")
+    print(f"[10] Sending SMS from {sms_from} to {to}…")
     r = requests.post(
-        f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_SID}/Messages.json",
-        auth=(TWILIO_SID, TWILIO_TOKEN),
-        data={"From": TWILIO_SMS_FROM, "To": to, "Body": msg},
+        f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json",
+        auth=(sid, tok),
+        data={"From": sms_from, "To": to, "Body": msg},
         timeout=30,
     )
     if not r.ok:
         print(f"[10] Twilio SMS error {r.status_code} to={to!r}: {r.text[:800]}")
     else:
         print(f"[10] SMS sent to {to}.")
-
-
-# Keep old name as alias so any external callers aren't broken.
-send_whatsapp = send_sms
 
 
 # ---------------------------------------------------------------------------
@@ -5521,8 +5551,13 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
     if site_key not in SITES:
         raise ValueError(f"Unknown site {site_key!r}; choose from {list(SITES)}")
     site = SITES[site_key]
-    if not site.get("wp_pass"):
-        raise RuntimeError(f"Missing WordPress credentials for {site_key}")
+    missing = [k for k in ("wp_url", "wp_user", "wp_pass") if not (site.get(k) or "").strip()]
+    if missing:
+        raise RuntimeError(
+            f"Missing WordPress credentials for {site_key}: {', '.join(missing)}"
+        )
+    meta_max = int(site.get("meta_description_max") or 160)
+    meta_min = int(site.get("meta_description_min") or 1)
 
     print(f"[1] Fetching Google Doc…")
     ghtml = fetch_gdoc_html(gdoc_url)
@@ -5571,7 +5606,7 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
     title = (plan.get("post_title") or "Untitled").strip()
     focus = (plan.get("focus_keyword") or "").strip()
     seo_title = (plan.get("seo_title") or title).strip()
-    meta = _enforce_meta_period((plan.get("meta_description") or "").strip()[:160])
+    meta = _enforce_meta_period((plan.get("meta_description") or "").strip()[:meta_max])
     hero_q = (plan.get("hero_pexels_query") or title).strip()
     cat_hint = (plan.get("category_hint") or "").strip() or "culture"
 
@@ -5600,7 +5635,7 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
             if _slugify_category_hint(cat_hint) != _slugify_category_hint(raw_cat):
                 print(f"[2d] category_hint refined: {raw_cat!r} → {cat_hint!r}")
         else:
-            cat_hint = "Check This Out"
+            cat_hint = cat_hint or "culture"
         if client_src:
             hero_q = ""
 
@@ -5612,6 +5647,10 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
         base_meta = (meta or "").strip() or derive_meta_from_gdoc_first_paragraph(ghtml)
         meta = ensure_meta_description_length(base_meta, excerpt_long)
         seo_title = build_cd_aioseo_seo_title(title, (plan.get("seo_title") or "").strip())
+    else:
+        excerpt_long = planner_plaintext_excerpt_from_gdoc(ghtml, max_chars=80_000)
+        base_meta = (meta or "").strip() or derive_meta_from_gdoc_first_paragraph(ghtml)
+        meta = ensure_meta_description_length(base_meta, excerpt_long, min_len=meta_min, max_len=meta_max)
 
     # CRITICAL_RULES #2 / operator contract: article HTML never from Claude — only Doc export + code normalization.
     print("[2a] Article body from Google Doc HTML export (Claude article_body_html ignored).")
@@ -5628,7 +5667,7 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
         seo_title = _doc_seo_title
         manual_flags.append("doc_seo_title_override")
     if _doc_meta:
-        meta = _enforce_meta_period(_doc_meta[:160])
+        meta = _enforce_meta_period(_doc_meta[:meta_max])
         manual_flags.append("doc_meta_description_override")
     if _doc_focus and not focus:
         focus = _doc_focus
@@ -5693,6 +5732,7 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
             )
     body = canonicalize_body_http_links_cd(site, body)
     body = normalize_cd_body_support_links_for_dofollow(site, body)
+    body = ensure_all_http_links_target_blank(body)
     _img_src_credits = ""
     if site["key"] == "cd":
         body = cd_deduplicate_inline_body_images(
@@ -5858,7 +5898,7 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
     hero_url = hero_media.get("source_url") or ""
     print(f"[img-url] HERO src: {hero_url}")
 
-    wp_u, auth_u = wp_auth(site)
+    wp_u, wp_sess_u = wp_auth(site)
     social_hdr = {"X-CD-Pipeline-Social": "1"}
     social_attempts = [True, False] if use_png_social else [False]
     social_media: dict = {}
@@ -5886,9 +5926,7 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
         )
         social_id = int(social_media["id"])
         time.sleep(0.6)
-        r_sv = requests.get(
-            f"{wp_u}/wp-json/wp/v2/media/{social_id}?context=edit",
-            auth=auth_u,
+        r_sv = wp_sess_u.get(f"{wp_u}/wp-json/wp/v2/media/{social_id}?context=edit",
             timeout=30,
         )
         r_sv.raise_for_status()
@@ -5963,18 +6001,14 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
 
     # Hard PATCH 3s after creation — ensures _thumbnail_id is committed regardless of creation response timing
     time.sleep(3)
-    _wp_u, _auth_u = wp_auth(site)
-    _rp = requests.patch(
-        f"{_wp_u}/wp-json/wp/v2/posts/{post_id}",
-        auth=_auth_u,
+    _wp_u, _wp_sess = wp_auth(site)
+    _rp = _wp_sess.patch(f"{_wp_u}/wp-json/wp/v2/posts/{post_id}",
         json={"featured_media": hero_id},
         timeout=60,
     )
     if not _rp.ok:
         print(f"[8b] ⚠ featured_media PATCH failed: {_rp.status_code} {_rp.text[:120]}")
-    _rv = requests.get(
-        f"{_wp_u}/wp-json/wp/v2/posts/{post_id}?context=edit",
-        auth=_auth_u,
+    _rv = _wp_sess.get(f"{_wp_u}/wp-json/wp/v2/posts/{post_id}?context=edit",
         timeout=30,
     )
     if _rv.ok:

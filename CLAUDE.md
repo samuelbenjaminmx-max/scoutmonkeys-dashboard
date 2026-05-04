@@ -1,6 +1,6 @@
 # Scoutmonkeys — `CLAUDE.md` (operator spec)
 
-This repository powers the **Scoutmonkeys** publishing dashboard and CLI pipeline: Google Docs → WordPress **drafts** for **Cultural Daily (`cd`)** and optionally **DCR (`dcr`)**, with **AIOSEO + cd-seo** integration, **Pexels** imagery, **Anthropic** layout planning, **Twilio WhatsApp** draft notifications, and automated **QA** aligned with `QA.md`.
+This repository powers the **Scoutmonkeys** publishing dashboard and CLI pipeline: Google Docs → WordPress **drafts** for **Cultural Daily (`cd`)** and optionally **DCR (`dcr`)**, with **AIOSEO + cd-seo** integration, **Pexels** imagery, **Anthropic** layout planning, **Twilio SMS** draft notifications, and automated **QA** aligned with `QA.md`.
 
 ## Rule 0 — Prime Directive
 
@@ -46,9 +46,9 @@ This rule overrides any pipeline "optimization," layout preference, or AI judgme
 | `DCR_WP_URL`, `DCR_WP_USER`, `DCR_WP_PASS` | Optional second site |
 | `PEXELS_API_KEY` | Pexels search + downloads |
 | `ANTHROPIC_API_KEY` | Claude planning (`ANTHROPIC_MODEL` optional, default `claude-sonnet-4-6`) |
-| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM` | Twilio WhatsApp (must be real values, not placeholders) |
-| `WHATSAPP_TO` | E.g. `whatsapp:+5215549571586` (preferred) |
-| `WHATSAPP_PHONE` | Fallback `+5215549571586` if `WHATSAPP_TO` unset |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | Twilio REST (must be real values, not placeholders) |
+| `TWILIO_SMS_FROM` | Outbound SMS caller ID (E.164). If unset, `pipeline.py` uses the first number from Twilio **IncomingPhoneNumbers** on the account. |
+| `SMS_TO` | Recipient E.164 for draft SMS (defaults to `+5215549571586` in code if unset). |
 | `SECRET_KEY` | Flask session signing |
 | `DASHBOARD_PASSWORD` | Dashboard login password |
 | `OUR_FRIENDS_AUTHOR_ID` | Default `19` (Cultural Daily) |
@@ -168,7 +168,7 @@ End of HTML (machine order):
 ## QA
 
 - `pipeline.verify_post(...)` encodes the **`QA.md` checklist** (21 checks on CD, plus extra checks when `CRITICAL_RULES.md` is active). Generated hero/social JPEGs are asserted **exact** pixel dimensions in `pipeline.run` before upload. Do not mark a publish as “complete” if QA fails.
-- WhatsApp is sent when the draft is saved **after** the QA step runs (see `pipeline.run`); fix Twilio placeholders on Railway for real sends.
+- SMS is sent when the draft is saved **after** the QA step runs (see `pipeline.run`); fix Twilio placeholders on Railway for real sends.
 
 ## DCR caveat
 

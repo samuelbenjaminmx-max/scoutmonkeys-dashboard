@@ -63,7 +63,7 @@ Use this list before you call a publish **complete**. The automated `pipeline.ve
 ## Notifications
 
 - [ ] **Twilio** environment variables are real (not textual placeholders like `TWILIO_ACCOUNT_SID`).
-- [ ] WhatsApp recipient (`WHATSAPP_TO` or `WHATSAPP_PHONE`) is correct for the editor receiving alerts.
+- [ ] **SMS** recipient (`SMS_TO`, E.164) is correct for the editor receiving alerts.
 
 ## Sign-off
 
