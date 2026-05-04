@@ -3993,7 +3993,7 @@ def create_wp_draft(
     return post
 
 
-def _aioseo_get_current(wp: str, auth: tuple, pid: int) -> dict:
+def _aioseo_get_current(wp: str, pid: int) -> dict:
     """Return the currentPost dict from AIOSEO GET, or {} on failure."""
     try:
         g = wp_sess.get(f"{wp}/wp-json/aioseo/v1/post?postId={pid}",
@@ -4030,7 +4030,7 @@ def push_aioseo_and_cdseo(
     pid = int(post_id)
 
     # --- 1. Read current AIOSEO state (base for all fields we are not changing)
-    current = _aioseo_get_current(wp, auth, pid)
+    current = _aioseo_get_current(wp, pid)
 
     # Fields AIOSEO reads back from different locations in the GET response:
     #   cp["title"]                        → stored custom SEO title
@@ -4097,7 +4097,7 @@ def push_aioseo_and_cdseo(
     need_og_verify = bool(final_og_url)
 
     def _og_from_aioseo_get() -> str:
-        cur = _aioseo_get_current(wp, auth, pid)
+        cur = _aioseo_get_current(wp, pid)
         return (cur.get("og_image_custom_url") or "").strip()
 
     # --- 6. POST with retry --------------------------------------------------
