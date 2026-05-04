@@ -3960,7 +3960,7 @@ def resolve_default_category(site: dict, hint: str) -> int:
     raise RuntimeError("Could not resolve a default WordPress category id")
 
 
-(
+def create_wp_draft(
     site: dict,
     title: str,
     content: str,
