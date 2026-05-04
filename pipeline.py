@@ -4009,6 +4009,24 @@ def _aioseo_get_current(wp: str, wp_sess: requests.Session, pid: int) -> dict:
     return {}
 
 
+def _push_yoast_seo(wp, wp_sess, post_id, seo, og_url, *, seo_title_max=65, md_clip=140):
+    pid = int(post_id)
+    st = (seo.get("seo_title") or "")[:seo_title_max]
+    md = (seo.get("meta_description") or "")[:md_clip]
+    fk = (seo.get("focus_keyword") or "")
+    meta = {}
+    if st: meta["_yoast_wpseo_title"] = st
+    if md: meta["_yoast_wpseo_metadesc"] = md
+    if fk: meta["_yoast_wpseo_focuskw"] = fk
+    if og_url: meta["_yoast_wpseo_opengraph-image"] = og_url
+    if not meta:
+        return
+    r = wp_sess.post(f"{wp}/wp-json/wp/v2/posts/{pid}", json={"meta": meta}, timeout=60)
+    if r.ok:
+        print(f"[9] Yoast SEO updated for post {pid} ✅")
+    else:
+        print(f"[warn] Yoast SEO update failed {r.status_code}: {r.text[:300]}")
+
 def push_aioseo_and_cdseo(
     site: dict,
     post_id: int,
@@ -4028,6 +4046,10 @@ def push_aioseo_and_cdseo(
     safe way to do a partial update.
     """
     wp, wp_sess = wp_auth(site)
+    if site.get("key") == "dcr":
+        _push_yoast_seo(wp, wp_sess, post_id, seo, og_custom_url, seo_title_max=(int(seo_title_max) if seo_title_max else 65), md_clip=140)
+        return
+
     st_clip = int(seo_title_max) if seo_title_max is not None else int(site["seo_title_max"])
     md_clip = int(site.get("meta_description_max") or 160)
     pid = int(post_id)
