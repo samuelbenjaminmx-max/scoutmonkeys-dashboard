@@ -3995,10 +3995,11 @@ def create_wp_draft(
     return post
 
 
-def _aioseo_get_current(wp: str, pid: int) -> dict:
+def _aioseo_get_current(wp: str, wp_sess: requests.Session, pid: int) -> dict:
     """Return the currentPost dict from AIOSEO GET, or {} on failure."""
     try:
-        g = wp_sess.get(f"{wp}/wp-json/aioseo/v1/post?postId={pid}",
+        g = wp_sess.get(
+            f"{wp}/wp-json/aioseo/v1/post?postId={pid}",
             timeout=30,
         )
         if g.ok:
@@ -4032,7 +4033,7 @@ def push_aioseo_and_cdseo(
     pid = int(post_id)
 
     # --- 1. Read current AIOSEO state (base for all fields we are not changing)
-    current = _aioseo_get_current(wp, pid)
+    current = _aioseo_get_current(wp, wp_sess, pid)
 
     # Fields AIOSEO reads back from different locations in the GET response:
     #   cp["title"]                        → stored custom SEO title
@@ -4099,7 +4100,7 @@ def push_aioseo_and_cdseo(
     need_og_verify = bool(final_og_url)
 
     def _og_from_aioseo_get() -> str:
-        cur = _aioseo_get_current(wp, pid)
+        cur = _aioseo_get_current(wp, wp_sess, pid)
         return (cur.get("og_image_custom_url") or "").strip()
 
     # --- 6. POST with retry --------------------------------------------------
@@ -4107,9 +4108,9 @@ def push_aioseo_and_cdseo(
     cd_warn = ""
     for attempt in range(3):
         aio_ok = False
-        # postId must be in the JSON body only — adding it as a URL query param causes
-        # WordPress REST to misparse the combined request and return "Post ID is missing."
-        r = wp_sess.post(f"{wp}/wp-jdef create_wp_draftson/aioseo/v1/post", json=body, timeout=90)
+        # Primary: POST JSON body includes ``id`` (post id). Some installs also accept ``?postId=`` on GET;
+        # query on POST has been observed to confuse routing — keep id in the body only for this attempt.
+        r = wp_sess.post(f"{wp}/wp-json/aioseo/v1/post", json=body, timeout=90)
         if r.ok:
             aio_ok = True
         else:
@@ -4174,8 +4175,9 @@ def find_social_attachment_by_title(site: dict, topic_slug: str, hero_id: int) -
     return best
 
 
-def resolve_social_id(wp: str, auth, post_id: int, hero_id: int) -> Optional[int]:
-    _raio = wp_sess.get(f"{wp}/wp-json/aioseo/v1/post?postId={post_id}",
+def resolve_social_id(wp: str, wp_sess: requests.Session, post_id: int, hero_id: int) -> Optional[int]:
+    _raio = wp_sess.get(
+        f"{wp}/wp-json/aioseo/v1/post?postId={post_id}",
         timeout=30,
     )
     aioseo = _raio.json() if _raio.ok else {}
