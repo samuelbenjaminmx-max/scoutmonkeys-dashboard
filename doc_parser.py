@@ -8,6 +8,9 @@ When `CRITICAL_RULES.md` exists in the repo, its full text is prepended to machi
 (pipeline-wide override for rules 1–11 — H1, body fidelity, client images, donation, category, focus keyword,
 social image + exact 1920×1400, no AI liberties — see `CLAUDE.md`).
 Implements an explicit decision tree for images, credits, and body structure.
+Leading client ``SEO Title:`` / ``Meta Description:`` rows are stripped from the export HTML first
+(see ``strip_leading_gdoc_seo_metadata_from_export_html``) so they never reach WordPress; extracted
+values are returned on the intake object for the pipeline to use as SEO fields.
 **Http(s) anchors are inventoried only** (href, anchor text, bold, target, nofollow,
 inline color) — there is no editorial-vs-paid taxonomy: on this site every body
 link is a paid dofollow obligation (`CLAUDE.md`).
@@ -29,7 +32,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 
 REPO_ROOT = Path(__file__).resolve().parent
 RULES_FILE = REPO_ROOT / "cultural_daily_sponsored_rules.md"
@@ -94,6 +97,93 @@ def _normalize_gdoc_html(s: str) -> str:
         .replace("\u200b", "")
         .replace("\ufeff", "")
     )
+
+
+_SEO_TITLE_LABEL_RE = re.compile(r"(?is)^\s*seo\s*title\s*:\s*(.+)$")
+_META_DESCRIPTION_LABEL_RE = re.compile(r"(?is)^\s*meta\s*description\s*:\s*(.+)$")
+
+
+def _gdoc_visible_plain_one_line(tag: Tag) -> str:
+    """Single-line-ish plaintext for matching leading client SEO label rows."""
+    t = tag.get_text(" ", strip=True)
+    t = _normalize_gdoc_html(t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
+def _first_meaningful_body_child(body: Tag):
+    """First child of ``body`` that is not whitespace-only text, skipping ``script``/``style``."""
+    for child in body.children:
+        if isinstance(child, Comment):
+            continue
+        if isinstance(child, NavigableString):
+            if str(child).strip():
+                return child
+            continue
+        if isinstance(child, Tag):
+            if child.name in ("script", "style"):
+                continue
+            return child
+    return None
+
+
+def strip_leading_gdoc_seo_metadata_from_export_html(
+    html: str,
+    trace: Optional[List[dict]] = None,
+) -> Tuple[str, Optional[str], Optional[str], int]:
+    """
+    First step in Google Doc export processing: peel leading ``<body>`` blocks whose visible text
+    matches client-visible ``SEO Title: …`` or ``Meta Description: …`` lines (case-insensitive).
+
+    Returns ``(sanitized_html, extracted_seo_title, extracted_meta_description, removed_block_count)``.
+    Non-matching content (including blank leading paragraphs) stops the peel so real article
+    markup is never scanned beyond the contiguous label prefix.
+    """
+    if not (html or "").strip():
+        return html, None, None, 0
+    soup = BeautifulSoup(html, "html.parser")
+    body = soup.body
+    if not body:
+        return html, None, None, 0
+
+    extracted_seo: Optional[str] = None
+    extracted_meta: Optional[str] = None
+    removed = 0
+
+    for _ in range(40):
+        first = _first_meaningful_body_child(body)
+        if first is None:
+            break
+        if not isinstance(first, Tag):
+            break
+
+        text = _gdoc_visible_plain_one_line(first)
+        if not text:
+            break
+
+        m_seo = _SEO_TITLE_LABEL_RE.match(text)
+        m_meta = _META_DESCRIPTION_LABEL_RE.match(text)
+        if m_seo:
+            val = (m_seo.group(1) or "").strip()
+            if val:
+                extracted_seo = val
+            first.decompose()
+            removed += 1
+            if trace is not None:
+                _trace(trace, "D_SEO_STRIP", "seo_title_line_removed", val[:120])
+            continue
+        if m_meta:
+            val = (m_meta.group(1) or "").strip()
+            if val:
+                extracted_meta = val
+            first.decompose()
+            removed += 1
+            if trace is not None:
+                _trace(trace, "D_SEO_STRIP", "meta_description_line_removed", val[:120])
+            continue
+        break
+
+    return str(soup), extracted_seo, extracted_meta, removed
 
 
 def fetch_google_doc_export_html(
@@ -443,6 +533,10 @@ def parse_google_doc_intake(
     rules_path = rules_path or RULES_FILE
     rules_digest = load_rules_digest() if rules_path.exists() else ""
 
+    html, emb_seo_title, emb_meta_desc, n_seo_meta_removed = strip_leading_gdoc_seo_metadata_from_export_html(
+        html, trace
+    )
+
     soup = BeautifulSoup(html, "html.parser")
 
     images: List[dict] = []
@@ -483,6 +577,10 @@ def parse_google_doc_intake(
         "gdoc_tab_id": tab_id,
         "rules_file": str(rules_path),
         "rules_digest_chars": len(rules_digest),
+        "sanitized_export_html": html,
+        "doc_embedded_seo_title": emb_seo_title,
+        "doc_embedded_meta_description": emb_meta_desc,
+        "leading_seo_metadata_blocks_removed": int(n_seo_meta_removed),
         "images": images,
         "photo_credits": photo_credits,
         "hyperlinks": hyperlinks,
@@ -492,6 +590,7 @@ def parse_google_doc_intake(
             "photo_credit_block_count": len(photo_credits),
             "hyperlink_count": len(hyperlinks),
             "body_links_not_canonical_count": not_canonical,
+            "leading_seo_metadata_blocks_removed": int(n_seo_meta_removed),
         },
     }
     out["contract_flags"] = contract_flags_from_intake(out)
@@ -510,7 +609,11 @@ def intake_json_for_llm(
     When the pipeline already injects `CRITICAL_RULES.md` into the system prompt, pass
     ``include_critical_rules_prefix=False`` to avoid duplicating it in the user JSON (saves tokens).
     """
-    slim = {k: v for k, v in intake.items() if k != "decision_trace"}
+    slim = {
+        k: v
+        for k, v in intake.items()
+        if k not in ("decision_trace", "sanitized_export_html")
+    }
     slim["decision_trace_tail"] = (intake.get("decision_trace") or [])[-40:]
     s = json.dumps(slim, indent=2, ensure_ascii=False)
     prefix = ""

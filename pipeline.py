@@ -5564,6 +5564,7 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
 
     print(f"[1b] Doc intake parse (cultural_daily_sponsored_rules contract)…")
     intake = doc_parser.parse_google_doc_intake(ghtml, source_url=gdoc_url)
+    ghtml = intake.get("sanitized_export_html") or ghtml
     summ = intake.get("summary") or {}
     tab_note = ""
     if intake.get("gdoc_tab_id"):
@@ -5576,6 +5577,15 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
     flags = intake.get("contract_flags") or []
     if flags:
         print(f"     contract_flags: {', '.join(flags)}")
+    _n_seo_meta = int((summ.get("leading_seo_metadata_blocks_removed") or 0))
+    if _n_seo_meta:
+        print(f"     leading_seo_metadata_blocks_removed={_n_seo_meta}")
+    emb_seo_title = (intake.get("doc_embedded_seo_title") or "").strip()
+    emb_meta_desc = (intake.get("doc_embedded_meta_description") or "").strip()
+    if emb_seo_title:
+        print(f"     doc_embedded_seo_title: {len(emb_seo_title)} chars from Doc label line")
+    if emb_meta_desc:
+        print(f"     doc_embedded_meta_description: {len(emb_meta_desc)} chars from Doc label line")
 
     cr = critical_rules_active()
     machine_h1 = extract_h1_from_gdoc_html(ghtml).strip()
@@ -5674,6 +5684,19 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
         manual_flags.append("doc_focus_keyword_override")
     if _doc_category and not cat_hint:
         cat_hint = _doc_category
+
+    if emb_seo_title:
+        seo_title = emb_seo_title[: int(site["seo_title_max"])]
+        manual_flags.append("gdoc_embedded_seo_title")
+    if emb_meta_desc:
+        meta = _enforce_meta_period(emb_meta_desc[:meta_max])
+        manual_flags.append("gdoc_embedded_meta_description")
+        if site["key"] == "cd":
+            meta = ensure_meta_description_length(meta, excerpt_long)
+        else:
+            meta = ensure_meta_description_length(
+                meta, excerpt_long, min_len=meta_min, max_len=meta_max
+            )
 
     if client_src and site["key"] == "cd":
         _hero_src_strip = client_src.strip()
