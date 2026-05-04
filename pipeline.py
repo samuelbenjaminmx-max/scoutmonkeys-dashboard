@@ -133,7 +133,7 @@ def _site_dcr() -> dict:
     }
 
 
-SITES: Dict[str, dict] = {"cd": _site_cd()}
+SITES: Dict[str, dict] = {"cd": _site_cd(), "dcr": _site_dcr()}
 
 
 def _refresh_sites() -> None:
