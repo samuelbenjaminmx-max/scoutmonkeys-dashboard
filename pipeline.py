@@ -3748,8 +3748,31 @@ def dcr_reupload_inline_body_images(
     return str(soup) if changed else body_html
 
 
+def _dcr_pick_one_special_category_slug(blob: str) -> Optional[str]:
+    """
+    Return at most one WordPress category slug beyond **Check This Out**, using copy in *blob*.
+    Precedence when multiple topics could match: crypto → cbd → casino → betting → gambling
+    (first winning rule wins). Gaming terms map to a single slug so we never stack casino+betting+gambling.
+    """
+    b = (blob or "").lower()
+    if re.search(r"\b(crypto|bitcoin|ethereum|blockchain|defi|nft)\b", b):
+        return "crypto"
+    if re.search(r"\b(cbd|hemp|thc|cannabis)\b", b):
+        return "cbd"
+    if re.search(r"\b(casino|slots|poker|sportsbook)\b", b):
+        return "casino"
+    if re.search(r"\b(betting|sports betting|sportsbet|sports-betting|wager)\b", b):
+        return "betting"
+    if re.search(r"\b(gambling)\b", b):
+        return "gambling"
+    return None
+
+
 def resolve_dcr_post_categories(site: dict, *, title: str, topic_slug: str, cat_hint: str) -> Tuple[List[int], str]:
-    """DCR: always include Check This Out; optionally casino / betting / CBD / crypto when the copy matches."""
+    """
+    DCR: **at most two** categories — always **Check This Out**, plus **at most one** vertical
+    (crypto, cbd, casino, betting, or gambling) when copy matches.
+    """
     wp, wp_sess = wp_auth(site)
     notes: List[str] = []
     try:
@@ -3759,31 +3782,18 @@ def resolve_dcr_post_categories(site: dict, *, title: str, topic_slug: str, cat_
         main_id = resolve_default_category(site, "check this out")
         notes.append("check-this-out-fallback")
     ids: List[int] = [main_id]
-    seen: set[int] = {main_id}
     blob = f"{title} {topic_slug} {cat_hint}".lower()
-    extra: List[str] = []
-    if re.search(
-        r"\b(casino|gambling|poker|slots|sportsbook|betting|sports betting|wager|sportsbet|sports-betting)\b",
-        blob,
-    ):
-        for s in ("casino", "betting", "gambling"):
-            if s not in extra:
-                extra.append(s)
-    if re.search(r"\b(cbd|hemp|thc|cannabis)\b", blob):
-        extra.append("cbd")
-    if re.search(r"\b(crypto|bitcoin|ethereum|blockchain|defi|nft)\b", blob):
-        extra.append("crypto")
-    for slug in extra:
-        r = wp_sess.get(f"{wp}/wp-json/wp/v2/categories", params={"slug": slug}, timeout=30)
+    special_slug = _dcr_pick_one_special_category_slug(blob)
+    if special_slug:
+        r = wp_sess.get(f"{wp}/wp-json/wp/v2/categories", params={"slug": special_slug}, timeout=30)
         r.raise_for_status()
         rows = r.json()
-        if not rows:
-            continue
-        eid = int(rows[0]["id"])
-        if eid not in seen:
-            ids.append(eid)
-            seen.add(eid)
-            notes.append(f"+{slug}")
+        if rows:
+            eid = int(rows[0]["id"])
+            if eid != main_id:
+                ids.append(eid)
+                notes.append(f"+{special_slug}")
+    ids = ids[:2]
     return ids, ",".join(notes)
 
 
