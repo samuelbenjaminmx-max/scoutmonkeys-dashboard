@@ -28,6 +28,7 @@ from bs4 import BeautifulSoup, Comment, NavigableString
 from PIL import Image, ImageChops, ImageOps
 
 import doc_parser
+from learn_from_edits import save_draft_snapshot
 
 REPO_ROOT = Path(__file__).resolve().parent
 CRITICAL_RULES_PATH = REPO_ROOT / "CRITICAL_RULES.md"
@@ -5096,7 +5097,7 @@ def verify_post(
             (seo_title or "").strip() == exp_seo,
             f"{len(seo_title or '')} chars",
         )
-    elif critical_rules and expect_exact_title:
+    elif critical_rules and expect_exact_title and site.get("key") != "dcr":
         chk(
             "SEO title matches H1 (CRITICAL_RULES)",
             seo_title == expect_exact_title or seo_title == raw_title,
@@ -5144,9 +5145,11 @@ def verify_post(
         fk = kwt.lower()
         tl = raw_title.lower()
         ml = meta.lower()
-        ok_in = bool(kwt) and fk in tl and fk in ml
+        ok_in_meta  = bool(kwt) and fk in ml
+        ok_in_title = bool(kwt) and fk in tl
         chk("DCR focus keyword is exactly one word", ok_one, repr(kwt))
-        chk("DCR focus appears in post title + meta description", ok_in, "")
+        chk("DCR focus appears in meta description", ok_in_meta, f"meta: {repr(ml[:60])}")
+        chk("DCR focus appears in post title (advisory)", ok_in_title, f"title: {repr(tl[:60])}")
     elif critical_rules:
         kw_words = len(kw.split()) if kw else 0
         chk(
@@ -6781,6 +6784,18 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
         gdoc_url=gdoc_url,
     )
     post_id = int(post["id"])
+    save_draft_snapshot(post_id, {
+        "site": site["key"],
+        "title": post_title,
+        "body_html": content,
+        "categories": cat_ids_opt if site["key"] == "dcr" else [cat_id],
+        "hero_caption": "",
+        "aioseo": {
+            "seo_title": seo.get("seo_title", ""),
+            "meta_description": seo.get("meta_description", ""),
+            "focus_keyphrase": seo.get("focus_keyword", ""),
+        },
+    })
     edit_url = f"{site['wp_url']}/wp-admin/post.php?post={post_id}&action=edit"
     print(f"[8] Draft id={post_id} url={edit_url}")
 

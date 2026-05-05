@@ -17,3 +17,31 @@ Captured when this ledger was introduced (permanent reference for DCReport publi
 - **Focus keyphrase:** Must be **exactly one word**, present in the post title (H1) and in the meta description.
 - **Body links:** Every sponsored body link must be **bold** (`<strong>`) and **`target="_blank"`** (dofollow — not the italic `photo:` credit links).
 - **Body images:** Centered figures at **814×532** (site `hero_w` × `hero_h`), descriptive **alt** text, captions exactly **`photo: [Name] via [Platform]`** — italic, linked to source, new tab, not bold.
+
+---
+
+**When:** 2026-05-05 19:44:12 UTC
+
+**Post ID:** 33347
+
+**Title:** From Courtroom Dividers to Legal Credentials and the History of the BAR
+
+**Failed QA checks:** SEO title matches H1 (CRITICAL_RULES), DCR focus appears in post title + meta description
+
+**What the pipeline tried / did before QA:**
+
+Pre-QA pipeline steps for this draft: Google Doc export as article body; `_strip_metadata_label_lines` plus doc-top clean for stray SEO label lines; DCR `canonicalize_body_http_links_cd` (dofollow, `<strong>`, `target=_blank`); client hero guaranteed strip from body and post-upload WP hero URL strip; `dcr_reupload_inline_body_images` (site hero pixel size, centered figures, `photo:` captions from Doc credit links where available); `resolve_dcr_post_categories` (Check This Out plus optional vertical slugs); Yoast SEO via `_push_yoast_seo` after draft creation. There is no automated repair pass after QA — fix the WordPress draft or the source Doc and re-run.
+
+---
+
+**When:** 2026-05-05 20:35:05 UTC
+
+**Post ID:** 33350
+
+**Title:** Trump's Marijuana Rescheduling: Big Headlines, Narrower Reality
+
+**Failed QA checks:** DCR focus appears in meta description
+
+**What the pipeline tried / did before QA:**
+
+Pre-QA pipeline steps for this draft: Google Doc export as article body; `_strip_metadata_label_lines` plus doc-top clean for stray SEO label lines; DCR `canonicalize_body_http_links_cd` (dofollow, `<strong>`, `target=_blank`); client hero guaranteed strip from body and post-upload WP hero URL strip; `dcr_reupload_inline_body_images` (site hero pixel size, centered figures, `photo:` captions from Doc credit links where available); `resolve_dcr_post_categories` (Check This Out plus optional vertical slugs); Yoast SEO via `_push_yoast_seo` after draft creation. There is no automated repair pass after QA — fix the WordPress draft or the source Doc and re-run.

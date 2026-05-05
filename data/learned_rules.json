@@ -1,0 +1,22 @@
+[
+  {
+    "timestamp": "2026-05-05T21:21:22.997847+00:00",
+    "post_id": 33350,
+    "site": "dcr",
+    "field": "title_edit",
+    "before": "Trump's Marijuana Rescheduling: Big Headlines, Narrower Reality",
+    "after": "Trump&#8217;s Marijuana Rescheduling: Big Headlines, Narrower Reality",
+    "inferred_rule": "Post title was changed between the draft snapshot and the live post.",
+    "severity": "warning"
+  },
+  {
+    "timestamp": "2026-05-05T21:21:22.997847+00:00",
+    "post_id": 33350,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Trump's marijuana executive order moved medical cannabis to Schedule III, but recreational programs, banking, and criminal records remain.",
+    "after": "<p>Trump&#8217;s marijuana executive order moved medical cannabis to Schedule III, but recreational programs, banking, and criminal records remain.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
+  }
+]
