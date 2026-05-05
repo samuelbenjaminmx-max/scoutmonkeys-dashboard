@@ -129,7 +129,7 @@ def _site_dcr() -> dict:
         "title_max": 73,
         # Room for Yoast suffix `` | DCReport.org`` (~15 chars) so stored SEO title + suffix stays ≤73.
         "seo_title_max": 55,
-        "meta_description_max": 160,
+        "meta_description_max": 140,
         "meta_description_min": 1,
         "author_id": _safe_int_env("DCR_AUTHOR_ID", 99),
         "default_category_slugs": ("our-friends", "friends"),
@@ -1686,29 +1686,36 @@ def strip_duplicate_lead_title_from_body_html(body_html: str, h1_text: str) -> s
     h1 = soup.find("h1")
     if h1 and _norm_title_text(h1.get_text(" ", strip=True)) == want:
         h1.decompose()
-    else:
-        first_p = soup.find("p")
-        if first_p:
-            cls = " ".join(first_p.get("class") or []).lower()
-            if "title" in cls and _norm_title_text(first_p.get_text(" ", strip=True)) == want:
-                first_p.decompose()
-            elif _norm_title_text(first_p.get_text(" ", strip=True)) == want:
-                first_p.decompose()
+    lead = None
+    for node in soup.contents:
+        if isinstance(node, NavigableString):
+            if str(node).strip():
+                break
+            continue
+        if getattr(node, "name", "") == "br":
+            continue
+        if _dcr_bs4_block_is_empty_paragraph_or_div(node):
+            continue
+        lead = node
+        break
+    if lead is not None:
+        if _norm_title_text(lead.get_text(" ", strip=True)) == want:
+            lead.decompose()
+        elif getattr(lead, "name", "") == "p":
+            cls = " ".join(lead.get("class") or []).lower()
+            if "title" in cls and _norm_title_text(lead.get_text(" ", strip=True)) == want:
+                lead.decompose()
     return str(soup)
 
 
 def _p_is_gdoc_spacing_only(par: Any) -> bool:
     """
     True when ``<p>`` contributes no visible text — Google Docs often emits empty
-    paragraphs, ``<p>&nbsp;</p>``, or empty wrapped spans. **Keeps** ``<p>`` that
-    contain only ``<br>`` / ``<br/>`` so vertical gaps between image blocks survive
-    normalization (avoids figures stacking back-to-back).
+    paragraphs, ``<p>&nbsp;</p>``, or empty wrapped spans.
     """
     if par is None or getattr(par, "name", "") != "p":
         return False
     if par.find("img"):
-        return False
-    if par.find(["br", "hr"]):
         return False
     text = par.get_text(separator="", strip=False)
     text = unicodedata.normalize("NFKC", text)
@@ -1742,6 +1749,23 @@ def normalize_cd_body_vertical_spacing(html: str) -> str:
     s = re.sub(r"\n{3,}", "\n\n", s)
     s = re.sub(r"(</p>)\s*\n\s*\n\s*\n+", r"\1\n\n", s)
     s = re.sub(r"(</h[12]>)\s*\n\s*\n\s*\n+", r"\1\n\n", s)
+    return s
+
+
+def normalize_body_html_spacing_strict(html: str) -> str:
+    """
+    Strict spacing cleanup for publish-ready article body HTML:
+    - removes spacing-only ``<p>`` blocks (empty / ``<br>`` / ``&nbsp;``)
+    - keeps exactly one ASCII space between adjacent HTML elements
+    """
+    if not (html or "").strip():
+        return html
+    soup = BeautifulSoup(html, "html.parser")
+    for p in list(soup.find_all("p")):
+        if _p_is_gdoc_spacing_only(p):
+            p.decompose()
+    s = str(soup).strip()
+    s = re.sub(r">\s*<", "> <", s)
     return s
 
 
@@ -3693,7 +3717,13 @@ def dcr_ensure_focus_in_title_and_meta(title: str, meta: str, focus: str, meta_m
         base = f"{base}{sep}{f}".strip()
     if len(base) > meta_max:
         base = _clip_at_sentence_boundary(base, meta_max)
-    return _enforce_meta_period(base)
+    base = _enforce_meta_period(base)
+    if len(base) > meta_max:
+        base = _clip_at_sentence_boundary(base, meta_max)
+        base = _enforce_meta_period(base)
+    if len(base) > meta_max:
+        base = base[:meta_max].rstrip(" ,;:-")
+    return base
 
 
 def dcr_resolve_inline_credit(credit_page_url: str) -> Tuple[str, str]:
@@ -5177,10 +5207,9 @@ def verify_post(
 
     h_cap = _cap_raw(hero)
     if site.get("key") == "dcr":
-        h_plain = BeautifulSoup(h_cap, "html.parser").get_text(" ", strip=True).lower()
         chk(
-            "DCR hero caption (photo: credit) or empty when uncredited",
-            (not h_plain) or h_plain.startswith("photo:"),
+            "DCR hero caption is empty",
+            not BeautifulSoup(h_cap, "html.parser").get_text(" ", strip=True),
             repr(h_cap[:100]),
         )
     elif critical_rules:
@@ -6254,7 +6283,12 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
     title = (plan.get("post_title") or "Untitled").strip()
     focus = (plan.get("focus_keyword") or "").strip()
     seo_title = (plan.get("seo_title") or title).strip()
-    meta = _enforce_meta_period((plan.get("meta_description") or "").strip()[:meta_max])
+    meta = ensure_meta_description_length(
+        (plan.get("meta_description") or "").strip(),
+        "",
+        min_len=meta_min,
+        max_len=meta_max,
+    )
     hero_q = (plan.get("hero_pexels_query") or title).strip()
     cat_hint = (plan.get("category_hint") or "").strip() or "culture"
 
@@ -6315,7 +6349,7 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
         seo_title = _doc_seo_title
         manual_flags.append("doc_seo_title_override")
     if _doc_meta:
-        meta = _enforce_meta_period(_doc_meta[:meta_max])
+        meta = ensure_meta_description_length(_doc_meta, excerpt_long, min_len=meta_min, max_len=meta_max)
         manual_flags.append("doc_meta_description_override")
     if _doc_focus and not focus:
         focus = _doc_focus
@@ -6330,7 +6364,7 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
         seo_title = emb_seo_title[: int(site["seo_title_max"])]
         manual_flags.append("gdoc_embedded_seo_title")
     if emb_meta_desc:
-        meta = _enforce_meta_period(emb_meta_desc[:meta_max])
+        meta = ensure_meta_description_length(emb_meta_desc, excerpt_long, min_len=meta_min, max_len=meta_max)
         manual_flags.append("gdoc_embedded_meta_description")
         if site["key"] == "cd":
             meta = ensure_meta_description_length(meta, excerpt_long)
@@ -6342,6 +6376,7 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
     if site["key"] == "dcr":
         focus = dcr_single_word_focus_from_title(title)
         meta = dcr_ensure_focus_in_title_and_meta(title, meta, focus, meta_max)
+        meta = ensure_meta_description_length(meta, excerpt_long, min_len=meta_min, max_len=meta_max)
 
     if client_src and site["key"] in ("cd", "dcr"):
         _hero_src_strip = client_src.strip()
@@ -6377,6 +6412,8 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
         body = remove_client_hero_image_from_body_html(body, client_src)
     if site["key"] == "cd" and cr and machine_h1:
         body = strip_duplicate_lead_title_from_body_html(body, machine_h1)
+    elif site["key"] == "dcr":
+        body = strip_duplicate_lead_title_from_body_html(body, title)
     if site["key"] == "cd":
         body = cd_resolve_gdoc_footnote_images(
             body,
@@ -6514,14 +6551,15 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
             cite = dcr_tail_photo_citation_html(prov_url, (prov_label or "").strip())
             _lab = (prov_label or "").strip()
             if prov_url:
-                cap = dcr_photo_caption_markup_html(prov_url, _lab)
+                social_cap = dcr_photo_caption_markup_html(prov_url, _lab)
             elif _lab:
-                cap = (
+                social_cap = (
                     '<p style="display:block;margin:0 auto;text-align:center">'
                     f"<em>{html_module.escape(f'photo: {_lab}')}</em></p>"
                 )
             else:
-                cap = ""
+                social_cap = ""
+            hero_cap = ""
             client_unknown_credit = not (prov_url or _lab)
         else:
             cite = client_photo_citation_html(prov_url, prov_label)
@@ -6531,6 +6569,8 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
                 if client_unknown_credit
                 else (f"Photo: {(prov_label or '').strip()}".strip() or "Photo")
             )
+            hero_cap = cap
+            social_cap = cap
         used_client_hero = True
     else:
         print(f"[3] Pexels search: {hero_q!r}")
@@ -6547,17 +6587,20 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
                 f'<p><em><a href="{html_module.escape(p_profile)}" target="_blank" rel="nofollow noopener">'
                 f"photo: {html_module.escape(p_name)} via Pexels</a></em></p>"
             )
-            cap = (
+            social_cap = (
                 '<p style="display:block;margin:0 auto;text-align:center">'
                 f'<em><a href="{html_module.escape(p_profile)}" target="_blank" rel="noopener">'
                 f"{html_module.escape(f'photo: {p_name} via Pexels')}</a></em></p>"
             )
+            hero_cap = ""
         else:
             cite = (
                 f'<p><em><a href="{p_profile}" target="_blank" rel="nofollow noopener">'
                 f"Photo: {p_name} via Pexels</a></em></p>"
             )
             cap = f"Photo: {p_name} via Pexels"
+            hero_cap = cap
+            social_cap = cap
 
     if hero_img.size != (site["hero_w"], site["hero_h"]):
         raise RuntimeError(
@@ -6610,7 +6653,7 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
 
     print(f"[4] Uploading hero {hero_fn}…")
     hero_media = wp_upload_jpeg(
-        site, hero_img, hero_fn, f"{prefix}-{slug}-hero", alt, cap
+        site, hero_img, hero_fn, f"{prefix}-{slug}-hero", alt, hero_cap
     )
     hero_id = int(hero_media["id"])
     hero_url = hero_media.get("source_url") or ""
@@ -6637,7 +6680,7 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
             social_fn,
             f"{prefix}-{slug}-social",
             alt,
-            cap,
+            social_cap,
             image_format="PNG" if try_png else "JPEG",
             jpeg_quality=96,
             http_headers=social_hdr,
@@ -6675,6 +6718,7 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
 
     if site["key"] == "dcr":
         body = dcr_strip_leading_empty_body_blocks(body)
+        body = normalize_body_html_spacing_strict(body)
 
     cite_html = (cite or "").strip()
     extra_credits = (_img_src_credits or "").strip()
