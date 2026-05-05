@@ -3509,12 +3509,18 @@ def _wp_post_meta_string(post: dict, key: str) -> str:
 def dcr_photo_caption_markup_html(credit_url: str, photographer_via_label: str) -> str:
     """
     DCR contract: ``photo: Name via Platform`` — italic, linked to source, ``target=_blank``, not bold.
+    Returns empty HTML when there is no real credit URL, or when there is a URL but no label and it is
+    not a Pexels asset (caller should leave media caption blank).
     """
     u = (credit_url or "").strip()
     lab = (photographer_via_label or "").strip()
     if not u:
         return ""
-    inner = f"photo: {lab}" if lab else "photo: image source"
+    low = u.lower()
+    is_pexels = "pexels.com" in low
+    if not lab and not is_pexels:
+        return ""
+    inner = f"photo: {lab}" if lab else "photo: via Pexels"
     u_esc = html_module.escape(u)
     inner_esc = html_module.escape(inner)
     return (
@@ -3530,13 +3536,83 @@ def dcr_tail_photo_citation_html(credit_url: Optional[str], photographer_via_lab
     if not u and not lab:
         return ""
     if not u:
-        inner = f"photo: {lab}" if lab else "photo: supplied"
-        return f"<p><em>{html_module.escape(inner)}</em></p>"
-    inner = f"photo: {lab}" if lab else "photo: supplied"
+        return f"<p><em>{html_module.escape(f'photo: {lab}')}</em></p>"
+    low = u.lower()
+    is_pexels = "pexels.com" in low
+    if not lab and not is_pexels:
+        return ""
+    inner = f"photo: {lab}" if lab else "photo: via Pexels"
     return (
         f'<p><em><a href="{html_module.escape(u)}" target="_blank" rel="noopener">'
         f"{html_module.escape(inner)}</a></em></p>"
     )
+
+
+def _dcr_bs4_block_is_empty_paragraph_or_div(tag: Any) -> bool:
+    if not tag or not getattr(tag, "name", None):
+        return False
+    if tag.name not in ("p", "div"):
+        return False
+    if tag.find(
+        ["img", "iframe", "video", "table", "ul", "ol", "blockquote", "figure", "svg", "hr"]
+        + [f"h{i}" for i in range(1, 7)]
+    ):
+        return False
+    if tag.get_text("\n", strip=True):
+        return False
+    return True
+
+
+def dcr_strip_leading_empty_body_blocks(body_html: str) -> str:
+    """Remove leading whitespace-only strings, ``<br>``, and empty ``<p>/<div>`` before first real content."""
+    if not (body_html or "").strip():
+        return body_html
+    soup = BeautifulSoup(body_html, "html.parser")
+    changed = False
+    while soup.contents:
+        node = soup.contents[0]
+        if isinstance(node, NavigableString):
+            if str(node).strip():
+                break
+            node.extract()
+            changed = True
+            continue
+        if getattr(node, "name", None) == "br":
+            node.extract()
+            changed = True
+            continue
+        if _dcr_bs4_block_is_empty_paragraph_or_div(node):
+            node.decompose()
+            changed = True
+            continue
+        break
+    return str(soup) if changed else body_html
+
+
+def dcr_strip_trailing_empty_paragraphs_before_tail(body_html: str) -> str:
+    """Remove trailing empty blocks so the machine tail does not follow multiple blank paragraphs."""
+    if not (body_html or "").strip():
+        return body_html
+    soup = BeautifulSoup(body_html, "html.parser")
+    changed = False
+    while soup.contents:
+        node = soup.contents[-1]
+        if isinstance(node, NavigableString):
+            if str(node).strip():
+                break
+            node.extract()
+            changed = True
+            continue
+        if getattr(node, "name", None) == "br":
+            node.extract()
+            changed = True
+            continue
+        if _dcr_bs4_block_is_empty_paragraph_or_div(node):
+            node.decompose()
+            changed = True
+            continue
+        break
+    return str(soup) if changed else body_html
 
 
 def dcr_single_word_focus_from_title(title: str) -> str:
@@ -3700,10 +3776,7 @@ def dcr_reupload_inline_body_images(
                 f"<em>{html_module.escape(f'photo: {label}')}</em></p>"
             )
         else:
-            cap_html = (
-                '<p style="display:block;margin:0 auto;text-align:center">'
-                "<em>photo: supplied</em></p>"
-            )
+            cap_html = ""
         cap_upload = cap_html
         try:
             m = wp_upload_jpeg(site, sized, fn, title_m, alt_f, cap_upload)
@@ -4325,23 +4398,66 @@ def _aioseo_get_current(wp: str, wp_sess: requests.Session, pid: int) -> dict:
     return {}
 
 
+def _dcr_yoast_meta_saved_in_rest_response(post_json: dict, keys: List[str]) -> Dict[str, bool]:
+    return {k: bool(_wp_post_meta_string(post_json, k)) for k in keys}
+
+
 def _push_yoast_seo(wp, wp_sess, post_id, seo, og_url, *, seo_title_max=65, md_clip=140):
+    """
+    Persist Yoast fields for DCReport. WordPress silently drops ``meta`` keys that are not
+    registered with ``show_in_rest`` — verify with ``GET …?context=edit`` and print install
+    instructions for ``wordpress-mu-plugins/dcr-yoast-rest-meta.php`` when verification fails.
+
+    Also tries optional ``/wp-json/yoast/v1/`` POST routes (usually read-only on Yoast SEO Free;
+    harmless when they 404).
+    """
     pid = int(post_id)
-    st = (seo.get("seo_title") or "")[:seo_title_max]
-    md = (seo.get("meta_description") or "")[:md_clip]
-    fk = (seo.get("focus_keyword") or "")
-    meta = {}
-    if st: meta["_yoast_wpseo_title"] = st
-    if md: meta["_yoast_wpseo_metadesc"] = md
-    if fk: meta["_yoast_wpseo_focuskw"] = fk
-    if og_url: meta["_yoast_wpseo_opengraph-image"] = og_url
+    st_raw = (seo.get("seo_title") or "").strip()[: int(seo_title_max)]
+    md_raw = (seo.get("meta_description") or "").strip()[: int(md_clip)]
+    fk_raw = (seo.get("focus_keyword") or "").strip()
+    og_u = (og_url or "").strip()
+    meta: Dict[str, str] = {}
+    if st_raw:
+        meta["_yoast_wpseo_title"] = st_raw
+    if md_raw:
+        meta["_yoast_wpseo_metadesc"] = md_raw
+    if fk_raw:
+        meta["_yoast_wpseo_focuskw"] = fk_raw
+    if og_u:
+        meta["_yoast_wpseo_opengraph-image"] = og_u
     if not meta:
         return
     r = wp_sess.post(f"{wp}/wp-json/wp/v2/posts/{pid}", json={"meta": meta}, timeout=60)
-    if r.ok:
-        print(f"[9] Yoast SEO updated for post {pid} ✅")
-    else:
-        print(f"[warn] Yoast SEO update failed {r.status_code}: {r.text[:300]}")
+    if not r.ok:
+        print(f"[warn] Yoast meta REST POST {r.status_code}: {r.text[:400]}")
+    yoast_try_urls = (
+        (f"{wp}/wp-json/yoast/v1/post", {"id": pid, "post_id": pid, "title": st_raw, "description": md_raw, "keyword": fk_raw}),
+        (f"{wp}/wp-json/yoast/v1/post/{pid}", {"title": st_raw, "description": md_raw, "focus_keyword": fk_raw}),
+        (f"{wp}/wp-json/yoast/v1/posts/{pid}", {"meta": meta}),
+    )
+    for yurl, payload in yoast_try_urls:
+        try:
+            yr = wp_sess.post(yurl, json=payload, timeout=25)
+            if yr.ok:
+                print(f"[9] Yoast REST route accepted POST {yurl} (status {yr.status_code})")
+        except Exception as exc:
+            print(f"[9] Yoast POST try {yurl!r} skipped: {exc!r}")
+    rv = wp_sess.get(f"{wp}/wp-json/wp/v2/posts/{pid}?context=edit", timeout=45)
+    if not rv.ok:
+        print(f"[warn] Yoast verify GET {rv.status_code} — cannot confirm meta keys in REST response")
+        return
+    saved = _dcr_yoast_meta_saved_in_rest_response(rv.json(), list(meta.keys()))
+    missing = [k for k, ok in saved.items() if not ok]
+    if not missing:
+        print(f"[9] Yoast SEO fields verified on post {pid} (REST ``meta``) ✅")
+        return
+    print(
+        f"[9] ❌ Yoast SEO meta not present in REST after save — missing: {', '.join(missing)}. "
+        "WordPress omits unregistered keys from ``wp/v2/posts`` ``meta``. "
+        "Install the mu-plugin from this repo: ``wordpress-mu-plugins/dcr-yoast-rest-meta.php`` "
+        "→ ``wp-content/mu-plugins/`` on the DCR host, load any front page once, then re-save the draft "
+        "or re-run the pipeline."
+    )
 
 def push_aioseo_and_cdseo(
     site: dict,
@@ -5013,8 +5129,8 @@ def verify_post(
     if site.get("key") == "dcr":
         h_plain = BeautifulSoup(h_cap, "html.parser").get_text(" ", strip=True).lower()
         chk(
-            "Hero caption begins 'photo:' (DCR)",
-            bool(h_plain.startswith("photo:")),
+            "DCR hero caption (photo: credit) or empty when uncredited",
+            (not h_plain) or h_plain.startswith("photo:"),
             repr(h_cap[:100]),
         )
     elif critical_rules:
@@ -5048,8 +5164,8 @@ def verify_post(
     if site.get("key") == "dcr":
         s_plain = BeautifulSoup(s_cap, "html.parser").get_text(" ", strip=True).lower()
         chk(
-            "Social caption begins 'photo:' (DCR)",
-            bool(s_plain.startswith("photo:")),
+            "DCR social caption (photo: credit) or empty when uncredited",
+            (not s_plain) or s_plain.startswith("photo:"),
             repr(s_cap[:100]),
         )
     elif critical_rules:
@@ -6157,6 +6273,9 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
     if _doc_category and not cat_hint:
         cat_hint = _doc_category
 
+    if site["key"] == "dcr":
+        body = dcr_strip_leading_empty_body_blocks(body)
+
     if emb_seo_title:
         seo_title = emb_seo_title[: int(site["seo_title_max"])]
         manual_flags.append("gdoc_embedded_seo_title")
@@ -6345,18 +6464,15 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
             cite = dcr_tail_photo_citation_html(prov_url, (prov_label or "").strip())
             _lab = (prov_label or "").strip()
             if prov_url:
-                cap = dcr_photo_caption_markup_html(prov_url, _lab or "supplied")
+                cap = dcr_photo_caption_markup_html(prov_url, _lab)
             elif _lab:
                 cap = (
                     '<p style="display:block;margin:0 auto;text-align:center">'
                     f"<em>{html_module.escape(f'photo: {_lab}')}</em></p>"
                 )
             else:
-                cap = (
-                    '<p style="display:block;margin:0 auto;text-align:center">'
-                    "<em>photo: supplied</em></p>"
-                )
-            client_unknown_credit = False
+                cap = ""
+            client_unknown_credit = not (prov_url or _lab)
         else:
             cite = client_photo_citation_html(prov_url, prov_label)
             client_unknown_credit = not prov_url and not (prov_label or "").strip()
@@ -6507,9 +6623,21 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
             body = str(_bsoup_hu)
         print(f"[2c] Post-upload hero strip (WP URL={_hu!r}): removed {_hu_removed} body <img> with exact src match.")
 
+    if site["key"] == "dcr":
+        body = dcr_strip_leading_empty_body_blocks(body)
+
     cite_html = (cite or "").strip()
     extra_credits = (_img_src_credits or "").strip()
-    if cite_html:
+    if site["key"] == "dcr":
+        body = dcr_strip_trailing_empty_paragraphs_before_tail(body)
+        mid_lines: List[str] = []
+        if cite_html:
+            mid_lines.append(cite_html)
+        if extra_credits:
+            mid_lines.append(extra_credits)
+        mid = ("\n".join(mid_lines) + "\n") if mid_lines else ""
+        tail = "<!--scoutmonkeys-machine-tail-->\n" + mid + "<hr />\n" + donation_html_for(site)
+    elif cite_html:
         tail = "<!--scoutmonkeys-machine-tail-->\n" + cite_html + ("\n" + extra_credits if extra_credits else "") + "\n<hr />\n" + donation_html_for(site)
     elif extra_credits:
         tail = "<!--scoutmonkeys-machine-tail-->\n" + extra_credits + "\n<hr />\n" + donation_html_for(site)
