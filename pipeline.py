@@ -125,8 +125,10 @@ def _site_dcr() -> dict:
         "hero_h": _safe_int_env("DCR_HERO_H", 532),
         "social_w": _safe_int_env("DCR_SOCIAL_W", 814),
         "social_h": _safe_int_env("DCR_SOCIAL_H", 532),
+        # Post title (H1) max; Yoast prepends/appends site template — keep SEO title field shorter.
         "title_max": 73,
-        "seo_title_max": 73,
+        # Room for Yoast suffix `` | DCReport.org`` (~15 chars) so stored SEO title + suffix stays ≤73.
+        "seo_title_max": 55,
         "meta_description_max": 160,
         "meta_description_min": 1,
         "author_id": _safe_int_env("DCR_AUTHOR_ID", 99),
@@ -3615,15 +3617,63 @@ def dcr_strip_trailing_empty_paragraphs_before_tail(body_html: str) -> str:
     return str(soup) if changed else body_html
 
 
+# Generic / promo funnel words — never use as DCR focus keyphrase (prefer brand or topic, e.g. GameZone, rebate).
+_DCR_FOCUS_GENERIC_WORDS = frozenset(
+    {
+        "play", "smarter", "unlock", "with", "the", "and", "get", "how", "why", "what",
+        "your", "you", "this", "that", "for", "are", "can", "our", "when", "who",
+        "promo", "promotion", "deal", "deals", "offer", "offers", "perks", "vip",
+        "big", "win", "wins", "here", "now", "new", "best", "free", "learn", "discover",
+        "smart", "tips", "guide", "way", "ways", "more", "most", "just",
+    }
+)
+
+
+def _dcr_focus_token_score(raw_token: str) -> int:
+    """Prefer distinctive tokens: mixed-case brands (GameZone), then longer lower-case topic words."""
+    if not raw_token or len(raw_token) < 2:
+        return 0
+    score = min(len(raw_token), 14)
+    if raw_token != raw_token.lower() and raw_token != raw_token.upper():
+        score += 14  # CamelCase / Title mixed (GameZone, iPhone)
+    elif raw_token.isupper() and 2 <= len(raw_token) <= 6:
+        score += 5  # NBA, VIP (fallback only)
+    return score
+
+
 def dcr_single_word_focus_from_title(title: str) -> str:
+    """
+    One-word focus: skip generic marketing grammar and pick the most distinctive token
+    (brand CamelCase / proper noun > topic substantive word).
+    """
+    raw_t = unicodedata.normalize("NFKC", (title or "")).strip()
+    if not raw_t:
+        return ""
+
+    tokens_raw = re.findall(r"[A-Za-z][A-Za-z0-9]*(?:'[a-z]+)?", raw_t)
+    scored: List[Tuple[int, str]] = []
+    for raw in tokens_raw:
+        low = raw.lower()
+        if len(low) < 3 and not (raw.isupper() and 2 <= len(raw) <= 5):
+            continue
+        if low in _DCR_FOCUS_GENERIC_WORDS or low in _CD_FOCUS_STOPWORDS:
+            continue
+        scored.append((_dcr_focus_token_score(raw) + len(low), low))
+
+    if scored:
+        scored.sort(key=lambda x: (-x[0], x[1]))
+        return scored[0][1]
+
     for cand in cd_title_focus_keyword_candidates(title):
-        if " " not in cand.strip():
-            return cand.strip()
-    words = re.findall(r"[a-z0-9]+", unicodedata.normalize("NFKC", (title or "")).lower())
-    for w in words:
-        if len(w) >= 3 and w not in _CD_FOCUS_STOPWORDS:
-            return w
-    return (words[0] if words else "").strip()
+        cs = cand.strip()
+        if " " in cs:
+            continue
+        low = cs.lower()
+        if low in _DCR_FOCUS_GENERIC_WORDS:
+            continue
+        if len(low) >= 3:
+            return low
+    return ""
 
 
 def dcr_ensure_focus_in_title_and_meta(title: str, meta: str, focus: str, meta_max: int) -> str:
@@ -4479,7 +4529,7 @@ def push_aioseo_and_cdseo(
     """
     wp, wp_sess = wp_auth(site)
     if site.get("key") == "dcr":
-        st_max = int(seo_title_max) if seo_title_max is not None else int(site.get("seo_title_max") or 73)
+        st_max = int(seo_title_max) if seo_title_max is not None else int(site.get("seo_title_max") or 55)
         md_max = int(site.get("meta_description_max") or 160)
         _push_yoast_seo(wp, wp_sess, post_id, seo, og_custom_url, seo_title_max=st_max, md_clip=md_max)
         return
