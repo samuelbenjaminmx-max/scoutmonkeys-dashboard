@@ -18,5 +18,35 @@
     "after": "<p>Trump&#8217;s marijuana executive order moved medical cannabis to Schedule III, but recreational programs, banking, and criminal records remain.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-05-06T17:05:19.343311+00:00",
+    "post_id": 194690,
+    "site": "cd",
+    "field": "title_edit",
+    "before": "The Art of Chance & Why Randomness Is THE Creative Force in iGaming",
+    "after": "The Art of Chance &#038; Why Randomness Is THE Creative Force in iGaming",
+    "inferred_rule": "Post title was changed between the draft snapshot and the live post.",
+    "severity": "warning"
+  },
+  {
+    "timestamp": "2026-05-06T17:05:19.343311+00:00",
+    "post_id": 194690,
+    "site": "cd",
+    "field": "link_count_changed",
+    "before": "3",
+    "after": "4",
+    "inferred_rule": "The number of hyperlinks in the article body changed.",
+    "severity": "critical"
+  },
+  {
+    "timestamp": "2026-05-06T17:05:19.343311+00:00",
+    "post_id": 194690,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Explore how randomness functions as a creative material in iGaming — from RNG design and pacing to participatory storytelling and global market growth.",
+    "after": "<p>Explore how randomness functions as a creative material in iGaming — from RNG design and pacing to participatory storytelling and global market growth.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
