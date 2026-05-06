@@ -108,5 +108,15 @@
     "after": "<p>Discover why a crime scene cleanup franchise is the smartest path for purpose-driven entrepreneurs who want to scale a meaningful, profitable business.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-05-06T18:25:21.287775+00:00",
+    "post_id": 194741,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Choosing the best last mile delivery software for enterprises? Learn which features drive efficiency, scalability, and customer satisfaction.",
+    "after": "<p>Choosing the best last mile delivery software for enterprises? Learn which features drive efficiency, scalability, and customer satisfaction.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
