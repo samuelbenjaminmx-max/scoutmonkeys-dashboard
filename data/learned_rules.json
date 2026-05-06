@@ -48,5 +48,15 @@
     "after": "<p>Explore how randomness functions as a creative material in iGaming — from RNG design and pacing to participatory storytelling and global market growth.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-05-06T17:33:49.101885+00:00",
+    "post_id": 194708,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Bulk cheese purchasing helps restaurants and caterers cut costs, reduce waste, and streamline inventory with fewer orders and stronger supplier relationships.",
+    "after": "<p>Bulk cheese purchasing helps restaurants and caterers cut costs, reduce waste, and streamline inventory with fewer orders and stronger supplier relationships.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
