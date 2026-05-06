@@ -8,12 +8,16 @@ View: http://localhost:5050
 
 import json
 import os
+import re
+import subprocess
+import sys
 from pathlib import Path
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, Response, jsonify, render_template_string, request, stream_with_context
 
 app = Flask(__name__, static_folder="dashboard_static")
 LEARNED_RULES_FILE = Path("data/learned_rules.json")
 DASHBOARD_HTML = Path("dashboard_static/index.html")
+PUBLISHER_URL = (os.getenv("PUBLISHER_URL") or "https://scoutmonkeys-production.up.railway.app/login").strip()
 
 HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -29,6 +33,8 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);padding:2rem
 .top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:1.5rem;padding-bottom:1rem;border-bottom:0.5px solid var(--border)}
 .top-title{font-size:18px;font-weight:500}.top-sub{font-size:13px;color:var(--text2);margin-top:3px}
 .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.pub-link{display:inline-block;font-size:13px;font-family:var(--sans);padding:6px 10px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);text-decoration:none}
+.pub-link:hover{background:var(--bg2)}
 select,button{font-size:13px;font-family:var(--sans);padding:6px 10px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);cursor:pointer}
 select:hover,button:hover{background:var(--bg2)}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:1.5rem}
@@ -54,8 +60,13 @@ select:hover,button:hover{background:var(--bg2)}
 </head>
 <body>
 <div class="top">
-  <div><div class="top-title">Learned rules</div><div class="top-sub" id="sub">Loading...</div></div>
+  <div>
+    <div class="top-title">Learned rules</div>
+    <div class="top-sub">Paste article Google Doc URL in Publisher.</div>
+    <div class="top-sub" id="sub">Loading...</div>
+  </div>
   <div class="filters">
+    <a id="publish-link" class="pub-link" href="#" target="_blank" rel="noopener">Open Publisher</a>
     <select id="sf" onchange="render()"><option value="">All sites</option><option value="dcr">DCR</option><option value="cd">CD</option></select>
     <select id="vf" onchange="render()"><option value="">All severities</option><option value="critical">Critical</option><option value="warning">Warning</option><option value="info">Info</option></select>
     <select id="ff" onchange="render()"><option value="">All fields</option></select>
@@ -99,9 +110,95 @@ async function load(){
   populateFields();render();
 }
 load();
+document.getElementById('publish-link').href = {{ publisher_url|tojson }};
 </script>
 </body>
 </html>"""
+
+PUBLISH_HTML = """<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Scoutmonkeys Publisher</title>
+  <style>
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f7fb;margin:0;padding:1rem}
+    .card{max-width:760px;margin:1rem auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:1rem 1.1rem}
+    h1{margin:0 0 .2rem 0;font-size:1.2rem}
+    .sub{margin:.15rem 0 .9rem 0;color:#6b7280;font-size:.92rem}
+    label{display:block;font-weight:600;margin:.7rem 0 .35rem}
+    input,select,textarea{width:100%;padding:.72rem .78rem;border:1px solid #d1d5db;border-radius:8px;font-size:.98rem}
+    textarea{min-height:88px}
+    button{margin-top:.95rem;width:100%;border:0;border-radius:8px;padding:.82rem;background:#2563eb;color:#fff;font-weight:700;cursor:pointer}
+    #log-wrap{display:none;margin-top:1rem}
+    #log{height:260px;overflow:auto;white-space:pre-wrap;background:#0b1220;color:#e5e7eb;border-radius:8px;padding:.7rem;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85rem}
+    #result{display:none;margin-top:.8rem}
+    #open{display:inline-block;padding:.65rem .85rem;border-radius:8px;background:#16a34a;color:#fff;text-decoration:none}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Scoutmonkeys Publisher</h1>
+    <p class="sub">Paste a Google Doc URL and publish a WordPress draft.</p>
+    <label for="gdoc">Google Doc URL</label>
+    <input id="gdoc" placeholder="https://docs.google.com/document/d/.../edit" />
+    <label for="site">Site</label>
+    <select id="site"><option value="cd">Cultural Daily</option><option value="dcr">DCReport</option></select>
+    <label for="notes">Notes (optional)</label>
+    <textarea id="notes" placeholder="Optional run-specific notes"></textarea>
+    <button id="pub" onclick="startPublish()">Publish Draft</button>
+    <div id="log-wrap"><div id="log"></div></div>
+    <div id="result"><a id="open" href="#" target="_blank">Open Draft</a></div>
+  </div>
+<script>
+function startPublish(){
+  const gdoc=document.getElementById('gdoc').value.trim();
+  const site=document.getElementById('site').value;
+  const notes=document.getElementById('notes').value.trim();
+  if(!gdoc){alert('Please enter a Google Doc URL.');return;}
+  const btn=document.getElementById('pub');
+  const logWrap=document.getElementById('log-wrap');
+  const logEl=document.getElementById('log');
+  const result=document.getElementById('result');
+  const open=document.getElementById('open');
+  btn.disabled=true; btn.textContent='Publishing...'; logWrap.style.display='block'; result.style.display='none'; logEl.textContent='';
+  const qs=new URLSearchParams({gdoc,site}); if(notes) qs.set('notes',notes);
+  const es=new EventSource('/stream?'+qs.toString());
+  es.addEventListener('log',ev=>{logEl.textContent+=ev.data+'\\n';logEl.scrollTop=logEl.scrollHeight;});
+  es.addEventListener('done',ev=>{
+    es.close(); btn.disabled=false; btn.textContent='Publish Draft';
+    try{
+      const d=JSON.parse(ev.data||'{}');
+      if(d.edit_url){open.href=d.edit_url;result.style.display='block';}
+    }catch(_e){}
+  });
+}
+</script>
+</body>
+</html>"""
+
+
+def _sse(event: str, data: str) -> str:
+    return f"event: {event}\ndata: {data}\n\n"
+
+
+def _extract_result(output: str) -> dict:
+    try:
+        start = output.rfind("{")
+        if start >= 0:
+            chunk = output[start:].strip()
+            return json.loads(chunk)
+    except Exception:
+        pass
+    try:
+        m = re.search(r'"edit_url"\s*:\s*"([^"]+)"', output)
+        url = m.group(1) if m else ""
+        qa_m = re.search(r'"qa_ok"\s*:\s*(true|false)', output)
+        qa = (qa_m.group(1) == "true") if qa_m else None
+        return {"edit_url": url, "qa_ok": qa} if url else {}
+    except Exception:
+        return {}
+    return {}
 
 def read_rules():
     if not LEARNED_RULES_FILE.exists():
@@ -114,11 +211,62 @@ def index():
     DASHBOARD_HTML.parent.mkdir(parents=True, exist_ok=True)
     if not DASHBOARD_HTML.exists():
         DASHBOARD_HTML.write_text(HTML)
-    return send_from_directory("dashboard_static", "index.html")
+    return render_template_string(HTML, publisher_url=PUBLISHER_URL)
 
 @app.route("/api/learned-rules")
 def learned_rules():
     return jsonify(read_rules())
+
+
+@app.route("/login")
+def login():
+    return render_template_string(PUBLISH_HTML)
+
+
+@app.route("/stream")
+def stream():
+    gdoc = (request.args.get("gdoc") or "").strip()
+    site = (request.args.get("site") or "cd").strip()
+    notes = (request.args.get("notes") or "").strip()
+    if not gdoc:
+        return Response(
+            _sse("log", "[error] No Google Doc URL provided.") + _sse("done", "{}"),
+            mimetype="text/event-stream",
+        )
+
+    root = Path(__file__).resolve().parent
+    env = {**os.environ, "CD_RELAX_SOCIAL_WP_PIXEL_ASSERT": "1"}
+    cmd = [sys.executable, str(root / "pipeline.py"), gdoc, site]
+    if notes:
+        cmd += ["--notes", notes]
+
+    def generate():
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(root),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        collected = []
+        assert proc.stdout is not None
+        for raw_line in proc.stdout:
+            line = raw_line.rstrip("\n\r")
+            collected.append(line)
+            yield _sse("log", line)
+        proc.wait()
+        result = _extract_result("\n".join(collected))
+        if proc.returncode != 0 and not result.get("edit_url"):
+            result["qa_ok"] = False
+        yield _sse("done", json.dumps(result))
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 if __name__ == "__main__":
     DASHBOARD_HTML.parent.mkdir(parents=True, exist_ok=True)
