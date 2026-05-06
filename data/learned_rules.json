@@ -78,5 +78,15 @@
     "after": "<p>Choosing the best last mile delivery software for enterprises? Learn which features drive efficiency, scalability, and customer satisfaction.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-05-06T18:12:52.237797+00:00",
+    "post_id": 194727,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Learn how to prepare for your first meeting with a motorcycle accident lawyer in Denver — documents, timeline, questions, and what to expect.",
+    "after": "<p>Learn how to prepare for your first meeting with a motorcycle accident lawyer in Denver — documents, timeline, questions, and what to expect.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
