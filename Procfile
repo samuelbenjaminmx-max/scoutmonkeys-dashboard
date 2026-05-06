@@ -1,1 +1,1 @@
-web: python3 dashboard_server.py
+web: gunicorn app:app
