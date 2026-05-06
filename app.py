@@ -28,6 +28,7 @@ if not _secret_key:
     print("[WARN] SECRET_KEY not set — sessions will reset on restart.")
 app.secret_key = _secret_key
 PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
+LEARNED_RULES_FILE = Path("data/learned_rules.json")
 
 # ── Templates ─────────────────────────────────────────────────────────────
 
@@ -116,10 +117,29 @@ textarea{width:100%;padding:.8rem 1rem;border:1.5px solid #d1d5db;
 .signout{text-align:right;font-size:.8rem;margin-top:.9rem}
 .signout a{color:#6b7280;text-decoration:none}
 .signout a:hover{color:#111}
+.tracker{margin-top:1.6rem;border-top:1px solid #e5e7eb;padding-top:1rem}
+.tracker-head{display:flex;justify-content:space-between;align-items:center;gap:.6rem;flex-wrap:wrap}
+.tracker h2{font-size:.98rem;margin:0;color:#111}
+.tracker-sub{font-size:.82rem;color:#6b7280;margin:.2rem 0 .75rem}
+#trk-reload{border:1px solid #d1d5db;background:#fff;border-radius:8px;padding:.45rem .65rem;font-size:.8rem;cursor:pointer}
+#trk-stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.4rem;margin:.5rem 0 .75rem}
+.trk-stat{background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:.4rem .45rem}
+.trk-k{font-size:.68rem;color:#6b7280}
+.trk-v{font-size:.93rem;font-weight:700;color:#111}
+#trk-list{display:flex;flex-direction:column;gap:.5rem;max-height:260px;overflow:auto}
+.trk-row{border:1px solid #e5e7eb;border-left:4px solid #94a3b8;border-radius:8px;padding:.55rem .65rem;background:#fff}
+.trk-row.critical{border-left-color:#ef4444}
+.trk-row.warning{border-left-color:#f59e0b}
+.trk-row.info{border-left-color:#3b82f6}
+.trk-top{display:flex;justify-content:space-between;gap:.5rem;font-size:.75rem;color:#6b7280}
+.trk-rule{font-size:.84rem;color:#111;margin:.25rem 0}
+.trk-diff{font-size:.73rem;color:#374151;word-break:break-word}
+.trk-empty{font-size:.82rem;color:#6b7280}
 @media(max-width:500px){
   .wrap{margin:.5rem auto}
   .card{padding:1.25rem}
   #pub-btn{font-size:1rem;padding:.85rem}
+  #trk-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 </style>
 </head>
@@ -152,6 +172,22 @@ textarea{width:100%;padding:.8rem 1rem;border:1.5px solid #d1d5db;
     <div id="result-section">
       <a id="draft-btn" href="#" target="_blank">Open Draft in WordPress →</a>
       <p id="qa-msg"></p>
+    </div>
+
+    <div class="tracker">
+      <div class="tracker-head">
+        <h2>Update Tracker</h2>
+        <button id="trk-reload" type="button" onclick="loadTracker()">Reload</button>
+      </div>
+      <p class="tracker-sub">Edits learned from published posts.</p>
+      <div id="trk-stats">
+        <div class="trk-stat"><div class="trk-k">Total</div><div id="st-total" class="trk-v">-</div></div>
+        <div class="trk-stat"><div class="trk-k">Critical</div><div id="st-critical" class="trk-v">-</div></div>
+        <div class="trk-stat"><div class="trk-k">Warning</div><div id="st-warning" class="trk-v">-</div></div>
+        <div class="trk-stat"><div class="trk-k">Info</div><div id="st-info" class="trk-v">-</div></div>
+        <div class="trk-stat"><div class="trk-k">Posts</div><div id="st-posts" class="trk-v">-</div></div>
+      </div>
+      <div id="trk-list"><p class="trk-empty">Loading tracker...</p></div>
     </div>
   </div>
   <p class="signout"><a href="/logout">Sign out</a></p>
@@ -215,6 +251,43 @@ function startPublish() {
     logEl.textContent += '\\n[connection lost — check log above for errors]';
   });
 }
+
+function esc(v){
+  return String(v ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+}
+
+async function loadTracker() {
+  const list = document.getElementById('trk-list');
+  try {
+    const r = await fetch('/api/learned-rules');
+    const rows = await r.json();
+    const total = rows.length;
+    const critical = rows.filter(x => x.severity === 'critical').length;
+    const warning = rows.filter(x => x.severity === 'warning').length;
+    const info = rows.filter(x => x.severity === 'info').length;
+    const posts = new Set(rows.map(x => x.post_id)).size;
+    document.getElementById('st-total').textContent = total;
+    document.getElementById('st-critical').textContent = critical;
+    document.getElementById('st-warning').textContent = warning;
+    document.getElementById('st-info').textContent = info;
+    document.getElementById('st-posts').textContent = posts;
+    if (!rows.length) {
+      list.innerHTML = '<p class="trk-empty">No learned updates yet.</p>';
+      return;
+    }
+    list.innerHTML = rows.slice().reverse().slice(0, 50).map(x => `
+      <div class="trk-row ${esc(x.severity)}">
+        <div class="trk-top"><span>${esc((x.site || '').toUpperCase())} • post #${esc(x.post_id)}</span><span>${esc(x.field || '')}</span></div>
+        <div class="trk-rule">${esc(x.inferred_rule || '')}</div>
+        <div class="trk-diff"><strong>before:</strong> ${esc(x.before)}<br/><strong>after:</strong> ${esc(x.after)}</div>
+      </div>
+    `).join('');
+  } catch (_) {
+    list.innerHTML = '<p class="trk-empty">Could not load tracker right now.</p>';
+  }
+}
+
+loadTracker();
 </script>
 </body>
 </html>"""
@@ -251,6 +324,15 @@ def _extract_result(output: str) -> dict:
         return {}
 
 
+def _read_rules() -> list:
+    if not LEARNED_RULES_FILE.exists():
+        return []
+    try:
+        return json.loads(LEARNED_RULES_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
 # ── Routes ────────────────────────────────────────────────────────────────
 
 @app.route("/health")
@@ -283,6 +365,13 @@ def home():
     if not _authed():
         return redirect(url_for("login"))
     return render_template_string(_MAIN)
+
+
+@app.route("/api/learned-rules")
+def learned_rules():
+    if not _authed():
+        return []
+    return _read_rules()
 
 
 @app.route("/stream")
