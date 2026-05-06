@@ -68,5 +68,15 @@
     "after": "<p>Discover what daily life really looks like in a modern assisted living community — from personalized meals and wellness programs to social activities and.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-05-06T18:04:20.604298+00:00",
+    "post_id": 194721,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Choosing the best last mile delivery software for enterprises? Learn which features drive efficiency, scalability, and customer satisfaction.",
+    "after": "<p>Choosing the best last mile delivery software for enterprises? Learn which features drive efficiency, scalability, and customer satisfaction.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
