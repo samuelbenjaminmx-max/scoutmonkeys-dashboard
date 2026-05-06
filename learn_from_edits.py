@@ -77,8 +77,12 @@ def save_draft_snapshot(post_id: int, payload: Dict[str, Any]) -> Path:
 
 def fetch_published_post(post_id: int, site: str) -> Dict[str, Any]:
     cfg = SITES[site]
-    user = os.environ.get("WP_USER_DCR", "")
-    password = os.environ.get("WP_PASS_DCR", "")
+    if site == "cd":
+        user = os.environ.get("WP_USER", "")
+        password = os.environ.get("WP_PASS", "")
+    else:
+        user = os.environ.get("WP_USER_DCR", "")
+        password = os.environ.get("WP_PASS_DCR", "")
     url = f"{cfg['base_url']}/wp-json/wp/v2/posts/{int(post_id)}"
     resp = requests.get(
         url, auth=(user, password), headers={"User-Agent": "Mozilla/5.0"}, timeout=20

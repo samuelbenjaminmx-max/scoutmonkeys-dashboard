@@ -7,12 +7,14 @@ View: http://localhost:5050
 """
 
 import json
+import os
 from pathlib import Path
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, render_template_string
 
 app = Flask(__name__, static_folder="dashboard_static")
 LEARNED_RULES_FILE = Path("data/learned_rules.json")
 DASHBOARD_HTML = Path("dashboard_static/index.html")
+PUBLISHER_URL = (os.getenv("PUBLISHER_URL") or "https://scoutmonkeys-production.up.railway.app/login").strip()
 
 HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -28,6 +30,8 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);padding:2rem
 .top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:1.5rem;padding-bottom:1rem;border-bottom:0.5px solid var(--border)}
 .top-title{font-size:18px;font-weight:500}.top-sub{font-size:13px;color:var(--text2);margin-top:3px}
 .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.pub-link{display:inline-block;font-size:13px;font-family:var(--sans);padding:6px 10px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);text-decoration:none}
+.pub-link:hover{background:var(--bg2)}
 select,button{font-size:13px;font-family:var(--sans);padding:6px 10px;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);cursor:pointer}
 select:hover,button:hover{background:var(--bg2)}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:1.5rem}
@@ -53,8 +57,13 @@ select:hover,button:hover{background:var(--bg2)}
 </head>
 <body>
 <div class="top">
-  <div><div class="top-title">Learned rules</div><div class="top-sub" id="sub">Loading...</div></div>
+  <div>
+    <div class="top-title">Learned rules</div>
+    <div class="top-sub">Paste article Google Doc URL in Publisher.</div>
+    <div class="top-sub" id="sub">Loading...</div>
+  </div>
   <div class="filters">
+    <a id="publish-link" class="pub-link" href="#" target="_blank" rel="noopener">Open Publisher</a>
     <select id="sf" onchange="render()"><option value="">All sites</option><option value="dcr">DCR</option><option value="cd">CD</option></select>
     <select id="vf" onchange="render()"><option value="">All severities</option><option value="critical">Critical</option><option value="warning">Warning</option><option value="info">Info</option></select>
     <select id="ff" onchange="render()"><option value="">All fields</option></select>
@@ -98,6 +107,7 @@ async function load(){
   populateFields();render();
 }
 load();
+document.getElementById('publish-link').href = {{ publisher_url|tojson }};
 </script>
 </body>
 </html>"""
@@ -113,7 +123,7 @@ def index():
     DASHBOARD_HTML.parent.mkdir(parents=True, exist_ok=True)
     if not DASHBOARD_HTML.exists():
         DASHBOARD_HTML.write_text(HTML)
-    return send_from_directory("dashboard_static", "index.html")
+    return render_template_string(HTML, publisher_url=PUBLISHER_URL)
 
 @app.route("/api/learned-rules")
 def learned_rules():

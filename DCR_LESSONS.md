@@ -45,3 +45,45 @@ Pre-QA pipeline steps for this draft: Google Doc export as article body; `_strip
 **What the pipeline tried / did before QA:**
 
 Pre-QA pipeline steps for this draft: Google Doc export as article body; `_strip_metadata_label_lines` plus doc-top clean for stray SEO label lines; DCR `canonicalize_body_http_links_cd` (dofollow, `<strong>`, `target=_blank`); client hero guaranteed strip from body and post-upload WP hero URL strip; `dcr_reupload_inline_body_images` (site hero pixel size, centered figures, `photo:` captions from Doc credit links where available); `resolve_dcr_post_categories` (Check This Out plus optional vertical slugs); Yoast SEO via `_push_yoast_seo` after draft creation. There is no automated repair pass after QA — fix the WordPress draft or the source Doc and re-run.
+
+---
+
+**When:** 2026-05-05 21:48:52 UTC
+
+**Post ID:** 33355
+
+**Title:** Trump's Marijuana Rescheduling: Big Headlines, Narrower Reality
+
+**Failed QA checks:** DCR focus appears in meta description
+
+**What the pipeline tried / did before QA:**
+
+Pre-QA pipeline steps for this draft: Google Doc export as article body; `_strip_metadata_label_lines` plus doc-top clean for stray SEO label lines; DCR `canonicalize_body_http_links_cd` (dofollow, `<strong>`, `target=_blank`); client hero guaranteed strip from body and post-upload WP hero URL strip; `dcr_reupload_inline_body_images` (site hero pixel size, centered figures, `photo:` captions from Doc credit links where available); `resolve_dcr_post_categories` (Check This Out plus optional vertical slugs); Yoast SEO via `_push_yoast_seo` after draft creation. There is no automated repair pass after QA — fix the WordPress draft or the source Doc and re-run.
+
+---
+
+**When:** 2026-05-05 21:50:16 UTC
+
+**Post ID:** 33358
+
+**Title:** From Courtroom Dividers to Legal Credentials and the History of the BAR
+
+**Failed QA checks:** DCR focus appears in meta description
+
+**What the pipeline tried / did before QA:**
+
+Pre-QA pipeline steps for this draft: Google Doc export as article body; `_strip_metadata_label_lines` plus doc-top clean for stray SEO label lines; DCR `canonicalize_body_http_links_cd` (dofollow, `<strong>`, `target=_blank`); client hero guaranteed strip from body and post-upload WP hero URL strip; `dcr_reupload_inline_body_images` (site hero pixel size, centered figures, `photo:` captions from Doc credit links where available); `resolve_dcr_post_categories` (Check This Out plus optional vertical slugs); Yoast SEO via `_push_yoast_seo` after draft creation. There is no automated repair pass after QA — fix the WordPress draft or the source Doc and re-run.
+
+---
+
+**When:** 2026-05-05 21:50:48 UTC
+
+**Post ID:** 33361
+
+**Title:** From Courtroom Dividers to Legal Credentials and the History of the BAR
+
+**Failed QA checks:** DCR focus appears in meta description
+
+**What the pipeline tried / did before QA:**
+
+Pre-QA pipeline steps for this draft: Google Doc export as article body; `_strip_metadata_label_lines` plus doc-top clean for stray SEO label lines; DCR `canonicalize_body_http_links_cd` (dofollow, `<strong>`, `target=_blank`); client hero guaranteed strip from body and post-upload WP hero URL strip; `dcr_reupload_inline_body_images` (site hero pixel size, centered figures, `photo:` captions from Doc credit links where available); `resolve_dcr_post_categories` (Check This Out plus optional vertical slugs); Yoast SEO via `_push_yoast_seo` after draft creation. There is no automated repair pass after QA — fix the WordPress draft or the source Doc and re-run.
