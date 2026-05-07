@@ -158,5 +158,15 @@
     "after": "<p>What VBlink online and Game Vault searches reveal about player expectations — and why the operator layer matters before your first deposit.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-05-07T17:41:11.504611+00:00",
+    "post_id": 194779,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Fire Kirin traces its roots from arcade halls to personal devices. Learn what this cultural shift means for US players researching access, terms, and state.",
+    "after": "<p>Fire Kirin traces its roots from arcade halls to personal devices. Learn what this cultural shift means for US players researching access, terms, and state.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
