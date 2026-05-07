@@ -118,5 +118,15 @@
     "after": "<p>Choosing the best last mile delivery software for enterprises? Learn which features drive efficiency, scalability, and customer satisfaction.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-05-07T13:33:00.270822+00:00",
+    "post_id": 194753,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover the top 3 Instagrammable travel destinations — Santorini, George Town Penang, and Banff — plus expert tips for stunning travel photography.",
+    "after": "<p>Discover the top 3 Instagrammable travel destinations — Santorini, George Town Penang, and Banff — plus expert tips for stunning travel photography.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
