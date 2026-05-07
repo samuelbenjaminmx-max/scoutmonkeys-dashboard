@@ -148,5 +148,15 @@
     "after": "<p>FTMining&#8217;s new free mining service allows BTC, ETH, XRP and DOGE holders to easily earn passive income without expensive equipment or specialized technical.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-05-07T17:38:54.377897+00:00",
+    "post_id": 194774,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "What VBlink online and Game Vault searches reveal about player expectations — and why the operator layer matters before your first deposit.",
+    "after": "<p>What VBlink online and Game Vault searches reveal about player expectations — and why the operator layer matters before your first deposit.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
