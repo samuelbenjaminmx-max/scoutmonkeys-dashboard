@@ -168,5 +168,15 @@
     "after": "<p>Fire Kirin traces its roots from arcade halls to personal devices. Learn what this cultural shift means for US players researching access, terms, and state.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-05-07T17:43:44.555858+00:00",
+    "post_id": 194784,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Panda Master offers an exclusive in-house game library through US sweepstakes operators. Here is what players should know before engaging with the platform.",
+    "after": "<p>Panda Master offers an exclusive in-house game library through US sweepstakes operators. Here is what players should know before engaging with the platform.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
