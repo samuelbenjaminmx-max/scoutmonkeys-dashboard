@@ -208,5 +208,15 @@
     "after": "<p>Learn the step-by-step process to calculate property tax rate in Texas, from assessed value and local rates to exemptions and verifying your final bill.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-05-07T17:50:10.629900+00:00",
+    "post_id": 194804,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover how regular physical activity supports longevity, reduces chronic disease risk, and improves mental well-being — consistency matters more than.",
+    "after": "<p>Discover how regular physical activity supports longevity, reduces chronic disease risk, and improves mental well-being — consistency matters more than.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
