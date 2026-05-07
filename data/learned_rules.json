@@ -218,5 +218,15 @@
     "after": "<p>Discover how regular physical activity supports longevity, reduces chronic disease risk, and improves mental well-being — consistency matters more than.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-05-07T17:51:50.578906+00:00",
+    "post_id": 194809,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover practical hosting tips for the ultimate dinner party — from planning menus and drinks to setting the mood and keeping every guest comfortable all.",
+    "after": "<p>Discover practical hosting tips for the ultimate dinner party — from planning menus and drinks to setting the mood and keeping every guest comfortable all.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
