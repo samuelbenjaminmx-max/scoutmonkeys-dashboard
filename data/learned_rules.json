@@ -138,5 +138,15 @@
     "after": "<p>How migrants use packed suitcases to carry familiar teas, spices, creams and sweets across borders — keeping cultural identity alive through small everyday.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-05-07T15:05:33.522203+00:00",
+    "post_id": 194768,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "FTMining's new free mining service allows BTC, ETH, XRP and DOGE holders to easily earn passive income without expensive equipment or specialized technical.",
+    "after": "<p>FTMining&#8217;s new free mining service allows BTC, ETH, XRP and DOGE holders to easily earn passive income without expensive equipment or specialized technical.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
