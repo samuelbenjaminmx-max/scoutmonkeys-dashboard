@@ -8,6 +8,8 @@ import re
 import secrets
 import subprocess
 import sys
+import threading
+import uuid
 from pathlib import Path
 
 from flask import Flask, Response, redirect, render_template_string, request, session, stream_with_context, url_for
@@ -29,6 +31,8 @@ if not _secret_key:
 app.secret_key = _secret_key
 PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
 LEARNED_RULES_FILE = Path("data/learned_rules.json")
+JOBS = {}
+JOBS_LOCK = threading.Lock()
 
 # ── Templates ─────────────────────────────────────────────────────────────
 
@@ -215,41 +219,76 @@ function startPublish() {
   qaMsg.textContent = '';
   qaMsg.className = '';
 
-  const qs = new URLSearchParams({ gdoc, site });
-  if (notes) qs.set('notes', notes);
-  const es = new EventSource('/stream?' + qs.toString());
-
-  es.addEventListener('log', ev => {
-    logEl.textContent += ev.data + '\\n';
-    logEl.scrollTop = logEl.scrollHeight;
-  });
-
-  es.addEventListener('done', ev => {
-    es.close();
+  const finishUi = (d) => {
     btn.disabled = false;
     btn.textContent = 'Publish Draft';
-    try {
-      const d = JSON.parse(ev.data);
-      if (d.edit_url) {
-        draftBtn.href = d.edit_url;
-        resSec.style.display = 'block';
-      }
-      if (d.qa_ok === false) {
-        qaMsg.textContent = '⚠️ Some QA checks failed — review the draft before publishing.';
-        qaMsg.className = 'qa-warn';
-      } else if (d.qa_ok === true) {
-        qaMsg.textContent = '✅ All QA checks passed.';
-        qaMsg.className = 'qa-ok';
-      }
-    } catch(_) {}
-  });
+    if (d && d.edit_url) {
+      draftBtn.href = d.edit_url;
+      resSec.style.display = 'block';
+    }
+    if (d && d.qa_ok === false) {
+      qaMsg.textContent = '⚠️ Some QA checks failed — review the draft before publishing.';
+      qaMsg.className = 'qa-warn';
+    } else if (d && d.qa_ok === true) {
+      qaMsg.textContent = '✅ All QA checks passed.';
+      qaMsg.className = 'qa-ok';
+    }
+  };
 
-  es.addEventListener('error', () => {
-    es.close();
-    btn.disabled = false;
-    btn.textContent = 'Publish Draft';
-    logEl.textContent += '\\n[connection lost — check log above for errors]';
-  });
+  fetch('/publish', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gdoc, site, notes }),
+  })
+    .then(r => r.json())
+    .then(start => {
+      if (start.error) {
+        throw new Error(start.error);
+      }
+      if (start.job_id) {
+        let lastLine = 0;
+        const timer = setInterval(async () => {
+          try {
+            const jr = await fetch('/job/' + encodeURIComponent(start.job_id));
+            const j = await jr.json();
+            if (j.error) {
+              clearInterval(timer);
+              throw new Error(j.error);
+            }
+            const lines = Array.isArray(j.output) ? j.output : [];
+            for (; lastLine < lines.length; lastLine++) {
+              logEl.textContent += lines[lastLine] + '\\n';
+            }
+            logEl.scrollTop = logEl.scrollHeight;
+            if (j.status === 'done' || j.status === 'failed') {
+              clearInterval(timer);
+              finishUi(j.result || {});
+              if (j.status === 'failed') {
+                logEl.textContent += '\\n[publish failed]';
+              }
+            }
+          } catch (e) {
+            clearInterval(timer);
+            btn.disabled = false;
+            btn.textContent = 'Publish Draft';
+            logEl.textContent += '\\n[connection lost — check log above for errors]';
+          }
+        }, 3000);
+      } else {
+        const lines = Array.isArray(start.output) ? start.output : [];
+        if (lines.length) {
+          logEl.textContent += lines.join('\\n') + '\\n';
+          logEl.scrollTop = logEl.scrollHeight;
+        }
+        finishUi(start.result || {});
+      }
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.textContent = 'Publish Draft';
+      logEl.textContent += '\\n[error] ' + (err && err.message ? err.message : 'publish failed');
+      logEl.scrollTop = logEl.scrollHeight;
+    });
 }
 
 function esc(v){
@@ -333,6 +372,66 @@ def _read_rules() -> list:
         return []
 
 
+def _run_pipeline(cmd: list, root: Path, env: dict) -> tuple[list, dict, int]:
+    proc = subprocess.Popen(
+        cmd,
+        cwd=str(root),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    collected = []
+    for raw_line in proc.stdout:
+        line = raw_line.rstrip("\n\r")
+        collected.append(line)
+    proc.wait()
+    result = _extract_result("\n".join(collected))
+    if proc.returncode != 0 and not result.get("edit_url"):
+        result["qa_ok"] = False
+    return collected, result, int(proc.returncode or 0)
+
+
+def _run_job(job_id: str, cmd: list, root: Path, env: dict) -> None:
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            return
+        job["status"] = "running"
+    proc = subprocess.Popen(
+        cmd,
+        cwd=str(root),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    collected = []
+    try:
+        for raw_line in proc.stdout:
+            line = raw_line.rstrip("\n\r")
+            collected.append(line)
+            with JOBS_LOCK:
+                if job_id in JOBS:
+                    JOBS[job_id]["output"].append(line)
+        proc.wait()
+        result = _extract_result("\n".join(collected))
+        if proc.returncode != 0 and not result.get("edit_url"):
+            result["qa_ok"] = False
+        with JOBS_LOCK:
+            if job_id in JOBS:
+                JOBS[job_id]["result"] = result
+                JOBS[job_id]["status"] = "done" if proc.returncode == 0 else "failed"
+    except Exception as exc:
+        with JOBS_LOCK:
+            if job_id in JOBS:
+                JOBS[job_id]["output"].append(f"[error] {exc}")
+                JOBS[job_id]["status"] = "failed"
+                JOBS[job_id]["result"] = {}
+
+
 # ── Routes ────────────────────────────────────────────────────────────────
 
 @app.route("/health")
@@ -372,6 +471,55 @@ def learned_rules():
     if not _authed():
         return []
     return _read_rules()
+
+
+@app.route("/publish", methods=["POST"])
+def publish():
+    if not _authed():
+        return {"error": "unauthorized"}, 401
+    payload = request.get_json(silent=True) or request.form or {}
+    gdoc = (payload.get("gdoc") or "").strip()
+    site = (payload.get("site") or "cd").strip()
+    notes = (payload.get("notes") or "").strip()
+    if not gdoc:
+        return {"error": "No Google Doc URL provided."}, 400
+
+    root = Path(__file__).resolve().parent
+    env = {**os.environ, "CD_RELAX_SOCIAL_WP_PIXEL_ASSERT": "1"}
+    cmd = [sys.executable, str(root / "pipeline.py"), gdoc, site]
+    if notes:
+        cmd += ["--notes", notes]
+
+    if site == "cd":
+        job_id = str(uuid.uuid4())
+        with JOBS_LOCK:
+            JOBS[job_id] = {"status": "queued", "output": [], "result": {}}
+        t = threading.Thread(target=_run_job, args=(job_id, cmd, root, env), daemon=True)
+        t.start()
+        return {"job_id": job_id, "status": "queued"}
+
+    output, result, rc = _run_pipeline(cmd, root, env)
+    return {
+        "status": "done" if rc == 0 else "failed",
+        "output": output,
+        "result": result,
+    }
+
+
+@app.route("/job/<job_id>")
+def job_status(job_id: str):
+    if not _authed():
+        return {"error": "unauthorized"}, 401
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            return {"error": "job not found"}, 404
+        return {
+            "job_id": job_id,
+            "status": job.get("status", "unknown"),
+            "output": list(job.get("output", [])),
+            "result": job.get("result", {}),
+        }
 
 
 @app.route("/stream")

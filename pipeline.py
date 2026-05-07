@@ -5915,10 +5915,10 @@ def remediate_latest_cd_draft() -> dict:
     raw_content = (post.get("content") or {}).get("raw") or ""
     if marker in raw_content:
         pre_body, tail_part = raw_content.split(marker, 1)
-        tail_suffix = marker + tail_part
+        tail_before_hr = re.split(r"(?i)<hr\s*/?>", tail_part, maxsplit=1)[0].strip()
     else:
         pre_body = raw_content
-        tail_suffix = ""
+        tail_before_hr = ""
     pre_body = normalize_cd_body_vertical_spacing(pre_body)
     pre_body = unwrap_google_redirect_hrefs_in_body(pre_body)
     pre_body = cd_resolve_gdoc_footnote_images(pre_body, hero_src=hero_url, site=site)
@@ -5950,11 +5950,19 @@ def remediate_latest_cd_draft() -> dict:
     pre2 = cd_enrich_inline_image_alts_with_vision(pre2, raw_title)
     cd_sync_inline_attachment_alts_from_body(site, pre2)
     _rem_extra = (_rem_img_credits or "").strip()
-    if _rem_extra and tail_suffix:
-        tail_suffix = _rem_extra + "\n" + tail_suffix
-    elif _rem_extra:
-        tail_suffix = _rem_extra
-    new_content = pre2.rstrip() + (("\n" + tail_suffix) if tail_suffix else "")
+    tail_lines: List[str] = []
+    if tail_before_hr and (DONATION_CTA_TEXT_CD not in tail_before_hr):
+        tail_lines.append(tail_before_hr)
+    if _rem_extra:
+        tail_lines.append(_rem_extra)
+    # Keep tail deterministic for QA: marker -> optional citation/credits -> hr -> canonical donation CTA.
+    tail_mid = "\n".join(x.strip() for x in tail_lines if (x or "").strip())
+    tail_suffix = (
+        f"{marker}\n{tail_mid}\n<hr />\n{donation_html_for(site)}"
+        if tail_mid
+        else f"{marker}\n<hr />\n{donation_html_for(site)}"
+    )
+    new_content = pre2.rstrip() + "\n" + tail_suffix
     # Always persist processed HTML on remediate: strict string compare misses WP serialization drift and
     # leaves the block editor on old ``P > span > img`` markup while QA passes on REST ``raw``.
     skip_body = (os.environ.get("REMEDIATE_SKIP_BODY_POST") or "").strip().lower() in (
@@ -6079,6 +6087,15 @@ def remediate_latest_cd_draft() -> dict:
 
     if not social_url:
         raise RuntimeError("Could not resolve social image URL for AIOSEO.")
+
+    r_hero_alt = wp_sess.post(f"{wp}/wp-json/wp/v2/media/{hero_id}",
+        json={"alt_text": alt},
+        timeout=60,
+    )
+    if r_hero_alt.ok:
+        actions.append("hero media alt_text (photo description, not title)")
+    else:
+        print(f"[warn] hero alt_text PATCH {r_hero_alt.status_code}: {r_hero_alt.text[:200]}")
 
     r_alt = wp_sess.post(f"{wp}/wp-json/wp/v2/media/{int(sid)}",
         json={"alt_text": alt},
