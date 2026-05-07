@@ -178,5 +178,15 @@
     "after": "<p>Panda Master offers an exclusive in-house game library through US sweepstakes operators. Here is what players should know before engaging with the platform.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-05-07T17:45:03.099652+00:00",
+    "post_id": 194789,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Understand the true costs of divorce — from attorney fees and forensic accountants to hidden administrative expenses and long-term financial shifts.",
+    "after": "<p>Understand the true costs of divorce — from attorney fees and forensic accountants to hidden administrative expenses and long-term financial shifts.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
