@@ -140,6 +140,15 @@ def _site_dcr() -> dict:
 SITES: Dict[str, dict] = {"cd": _site_cd(), "dcr": _site_dcr()}
 
 
+def dcr_shares_hero_social_attachment(site: dict) -> bool:
+    """DCR uses one media item for featured + OG when hero and social targets match."""
+    if site.get("key") != "dcr":
+        return False
+    hw, hh = int(site.get("hero_w") or 0), int(site.get("hero_h") or 0)
+    sw, sh = int(site.get("social_w") or 0), int(site.get("social_h") or 0)
+    return hw > 0 and hh > 0 and hw == sw and hh == sh
+
+
 def _refresh_sites() -> None:
     global SITES
     SITES = {"cd": _site_cd(), "dcr": _site_dcr()}
@@ -3547,12 +3556,12 @@ def dcr_tail_photo_citation_html(credit_url: Optional[str], photographer_via_lab
     if not u and not lab:
         return ""
     if not u:
-        return f"<p><em>{html_module.escape(f'photo: {lab}')}</em></p>"
+        return f"<p><em>{html_module.escape(f'Photo: {lab}')}</em></p>"
     low = u.lower()
     is_pexels = "pexels.com" in low
     if not lab and not is_pexels:
         return ""
-    inner = f"photo: {lab}" if lab else "photo: via Pexels"
+    inner = f"Photo: {lab}" if lab else "Photo: via Pexels"
     return (
         f'<p><em><a href="{html_module.escape(u)}" target="_blank" rel="noopener">'
         f"{html_module.escape(inner)}</a></em></p>"
@@ -5224,11 +5233,18 @@ def verify_post(
 
     st = soc.get("title") or {}
     s_title = st.get("raw") or st.get("rendered") or ""
-    chk(
-        f"Social title ({prefix}-...-social)",
-        s_title.startswith(prefix + "-") and s_title.endswith("-social"),
-        f"'{s_title}'",
-    )
+    if site.get("key") == "dcr" and int(social_id) == int(hero_id):
+        chk(
+            "DCR OG reuses hero attachment (single upload)",
+            s_title.startswith(prefix + "-") and s_title.endswith("-hero"),
+            f"'{s_title}'",
+        )
+    else:
+        chk(
+            f"Social title ({prefix}-...-social)",
+            s_title.startswith(prefix + "-") and s_title.endswith("-social"),
+            f"'{s_title}'",
+        )
 
     s_alt = soc.get("alt_text") or ""
     if site.get("key") == "cd":
@@ -6605,7 +6621,7 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
         if site["key"] == "dcr":
             cite = (
                 f'<p><em><a href="{html_module.escape(p_profile)}" target="_blank" rel="nofollow noopener">'
-                f"photo: {html_module.escape(p_name)} via Pexels</a></em></p>"
+                f"Photo: {html_module.escape(p_name)} via Pexels</a></em></p>"
             )
             social_cap = (
                 '<p style="display:block;margin:0 auto;text-align:center">'
@@ -6679,49 +6695,59 @@ def run(gdoc_url: str, site_key: str = "cd", *, photographer_override: str = "",
     hero_url = hero_media.get("source_url") or ""
     print(f"[img-url] HERO src: {hero_url}")
 
-    wp_u, wp_sess_u = wp_auth(site)
-    social_hdr = {"X-CD-Pipeline-Social": "1"}
-    social_attempts = [True, False] if use_png_social else [False]
-    social_media: dict = {}
-    social_id = 0
-    for att_i, try_png in enumerate(social_attempts):
-        if att_i > 0:
-            print(
-                "[warn] Social PNG was not kept at 1920×1400 on the server — "
-                "deleting that attachment and retrying as JPEG."
-            )
-            cd_delete_wp_media_attachment(site, social_id)
-        ext = "png" if try_png else "jpg"
-        social_fn = f"{prefix}-{slug}-social{fn_suffix}.{ext}"
-        print(f"[5] Uploading social {social_fn}…")
-        social_media = wp_upload_image(
-            site,
-            social_img,
-            social_fn,
-            f"{prefix}-{slug}-social",
-            alt,
-            social_cap,
-            image_format="PNG" if try_png else "JPEG",
-            jpeg_quality=96,
-            http_headers=social_hdr,
+    if dcr_shares_hero_social_attachment(site):
+        social_id = hero_id
+        social_media = hero_media
+        social_url = hero_url
+        print(
+            f"[5] DCR: hero and social are {site['hero_w']}×{site['hero_h']} — "
+            f"reusing hero media id={hero_id} for featured + OG (no second upload)"
         )
-        social_id = int(social_media["id"])
-        time.sleep(0.6)
-        r_sv = wp_sess_u.get(f"{wp_u}/wp-json/wp/v2/media/{social_id}?context=edit",
-            timeout=30,
-        )
-        r_sv.raise_for_status()
-        social_media = r_sv.json()
-        try:
-            assert_cd_social_attachment_stored_dimensions(
-                site, social_media, context="pipeline social upload"
+        print(f"[img-url] SOCIAL src: {social_url} (same as hero)")
+    else:
+        wp_u, wp_sess_u = wp_auth(site)
+        social_hdr = {"X-CD-Pipeline-Social": "1"}
+        social_attempts = [True, False] if use_png_social else [False]
+        social_media: dict = {}
+        social_id = 0
+        for att_i, try_png in enumerate(social_attempts):
+            if att_i > 0:
+                print(
+                    "[warn] Social PNG was not kept at 1920×1400 on the server — "
+                    "deleting that attachment and retrying as JPEG."
+                )
+                cd_delete_wp_media_attachment(site, social_id)
+            ext = "png" if try_png else "jpg"
+            social_fn = f"{prefix}-{slug}-social{fn_suffix}.{ext}"
+            print(f"[5] Uploading social {social_fn}…")
+            social_media = wp_upload_image(
+                site,
+                social_img,
+                social_fn,
+                f"{prefix}-{slug}-social",
+                alt,
+                social_cap,
+                image_format="PNG" if try_png else "JPEG",
+                jpeg_quality=96,
+                http_headers=social_hdr,
             )
-        except RuntimeError as e:
-            print(f"[warn] {e}")
-            continue
-        break
-    social_url = social_media.get("source_url") or ""
-    print(f"[img-url] SOCIAL src: {social_url}")
+            social_id = int(social_media["id"])
+            time.sleep(0.6)
+            r_sv = wp_sess_u.get(f"{wp_u}/wp-json/wp/v2/media/{social_id}?context=edit",
+                timeout=30,
+            )
+            r_sv.raise_for_status()
+            social_media = r_sv.json()
+            try:
+                assert_cd_social_attachment_stored_dimensions(
+                    site, social_media, context="pipeline social upload"
+                )
+            except RuntimeError as e:
+                print(f"[warn] {e}")
+                continue
+            break
+        social_url = social_media.get("source_url") or ""
+        print(f"[img-url] SOCIAL src: {social_url}")
 
     if site["key"] in ("cd", "dcr") and (hero_url or "").strip():
         _hu = hero_url.strip()
