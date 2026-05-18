@@ -238,5 +238,15 @@
     "after": "<p>Freelancers and creative professionals can qualify for a mortgage without pay stubs How Creative Professionals and.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-05-18T01:40:02.918822+00:00",
+    "post_id": 33479,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Theft of political yard signs is a criminal act. Learn the legal consequences, property rights, and deterrence strategies to vanishing.",
+    "after": "<p>Theft of political yard signs is a criminal act. Learn the legal consequences, property rights, and deterrence strategies to vanishing.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
