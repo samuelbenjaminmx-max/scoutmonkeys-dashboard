@@ -1,0 +1,71 @@
+{
+  "site": "https://www.dcreport.org",
+  "total_posts_scanned": 3098,
+  "non_pipeline_posts_scanned": 2601,
+  "pipeline_author_id": 99,
+  "aioseo_rest_available": false,
+  "aioseo_note": "AIOSEO /wp-json/aioseo/v1/post returns 404 on DCR \u2014 OG only scannable via Yoast REST meta.",
+  "affected_count": 5,
+  "posts": [
+    {
+      "post_id": 31477,
+      "title": "Crypto vs. Traditional Payments: Which Wins for Casino Withdrawals?",
+      "status": "publish",
+      "date": "2025-06-19",
+      "author_id": 120,
+      "author_name": "Sam Shemin",
+      "yoast": {
+        "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2025/06/DCR-coins.jpg"
+      },
+      "aioseo": {}
+    },
+    {
+      "post_id": 29615,
+      "title": "The Economy After the GDP Revisions",
+      "status": "publish",
+      "date": "2024-10-09",
+      "author_id": 34,
+      "author_name": "Dean Baker",
+      "yoast": {
+        "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2024/10/Stock-Exchange-hero-DCR-1024x561.jpg"
+      },
+      "aioseo": {}
+    },
+    {
+      "post_id": 28926,
+      "title": "Echoes From Europe's Vote",
+      "status": "publish",
+      "date": "2024-06-11",
+      "author_id": 15,
+      "author_name": "Terry Schwadron",
+      "yoast": {
+        "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2024/06/DCR-Europe-Voting.jpg"
+      },
+      "aioseo": {}
+    },
+    {
+      "post_id": 24261,
+      "title": "A New Look for DCReport",
+      "status": "publish",
+      "date": "2021-06-14",
+      "author_id": 5,
+      "author_name": "David Crook",
+      "yoast": {
+        "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2021/06/New-DCR-Website.png"
+      },
+      "aioseo": {}
+    },
+    {
+      "post_id": 29350,
+      "title": "U.S. Has Its First National Strategy To Reduce Plastic Pollution \u2212 Here Are 3 Strong Points and a Key Issue To\u00a0Watch",
+      "status": "publish",
+      "date": "2024-08-26",
+      "author_id": 1,
+      "author_name": "Tod Hardin",
+      "yoast": {
+        "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2024/08/Plastic-Pollution-DCR-1.jpg"
+      },
+      "aioseo": {}
+    }
+  ]
+}

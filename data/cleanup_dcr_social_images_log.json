@@ -1,0 +1,12 @@
+{
+  "dry_run": false,
+  "wp_url": "https://www.dcreport.org",
+  "pipeline_heroes_in_media": 105,
+  "pipeline_posts_seen": 21,
+  "posts_cleaned": 1,
+  "social_deleted": 1,
+  "orphan_social_remaining": 0,
+  "log": [
+    "post 33380 (publish) 'The Only 3 Instagram Growth Companies Worth Your Money' | hero=33381 (DCR-instagram-growth-companies) | social=33379 (DCR-instagram-growth-companies-social) | yoast og \u2192 https://www.dcreport.org/wp-content/uploads/2026/05/Untitled-design-2026-05-07T071256.008.jpg | deleted media id=33379"
+  ]
+}

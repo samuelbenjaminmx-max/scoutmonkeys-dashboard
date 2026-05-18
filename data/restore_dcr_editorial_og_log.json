@@ -1,0 +1,204 @@
+{
+  "dry_run": false,
+  "mode": "post-ids",
+  "author_id": null,
+  "post_ids": [
+    24908,
+    25028,
+    25029,
+    25560,
+    25628,
+    26183,
+    28362,
+    28647,
+    28655,
+    28723,
+    28888,
+    29560,
+    29579,
+    29649,
+    30109,
+    30191,
+    30354,
+    30532,
+    31040,
+    31200,
+    31215,
+    31276,
+    32593,
+    33055
+  ],
+  "wp_url": "https://www.dcreport.org",
+  "candidates_found": 24,
+  "posts_fixed": 24,
+  "posts": [
+    {
+      "post_id": 25029,
+      "status": "draft",
+      "date": "2026-05-17T20:35:32",
+      "title": "Part 2 DCJ audits",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2026/05/DCR-deferred-interest-financing-hero.jpg"
+    },
+    {
+      "post_id": 25028,
+      "status": "draft",
+      "date": "2026-05-17T20:35:30",
+      "title": "Part 1 audits",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2026/05/DCR-deferred-interest-financing-hero.jpg"
+    },
+    {
+      "post_id": 24908,
+      "status": "draft",
+      "date": "2026-05-17T20:35:27",
+      "title": "Okeson zoning",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2026/05/DCR-deferred-interest-financing-hero.jpg"
+    },
+    {
+      "post_id": 25560,
+      "status": "draft",
+      "date": "2026-05-17T20:35:24",
+      "title": "Biden Produces Economy Trump Promised",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2026/05/DCR-deferred-interest-financing-hero.jpg"
+    },
+    {
+      "post_id": 25628,
+      "status": "draft",
+      "date": "2026-05-17T20:35:21",
+      "title": "Okeson San Jose",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2026/05/DCR-deferred-interest-financing-hero.jpg"
+    },
+    {
+      "post_id": 26183,
+      "status": "draft",
+      "date": "2026-05-17T20:35:16",
+      "title": "",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2026/05/DCR-deferred-interest-financing-hero.jpg"
+    },
+    {
+      "post_id": 28362,
+      "status": "draft",
+      "date": "2026-05-17T20:34:28",
+      "title": "Dean Baker column needs his approval",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2026/05/DCR-deferred-interest-financing-hero.jpg"
+    },
+    {
+      "post_id": 28647,
+      "status": "draft",
+      "date": "2026-05-17T20:34:25",
+      "title": "",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2026/05/DCR-deferred-interest-financing-hero.jpg"
+    },
+    {
+      "post_id": 28655,
+      "status": "draft",
+      "date": "2026-05-17T20:34:21",
+      "title": "Israeli Strike on World Central Kitchen Aid Convoy Shows Growing Danger of Humanitarian Work in Conflict\u00a0Zones",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2026/05/DCR-deferred-interest-financing-hero.jpg"
+    },
+    {
+      "post_id": 28723,
+      "status": "draft",
+      "date": "2026-05-17T20:34:18",
+      "title": "Promoting Diversity and Inclusion: Integrating Inclusive Practices into Training",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2026/05/DCR-deferred-interest-financing-hero.jpg"
+    },
+    {
+      "post_id": 28888,
+      "status": "draft",
+      "date": "2026-05-17T20:34:13",
+      "title": "Online Casino Red Flags: Identifying Sites with Issues",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2026/05/DCR-deferred-interest-financing-hero.jpg"
+    },
+    {
+      "post_id": 29579,
+      "status": "draft",
+      "date": "2026-05-17T20:34:01",
+      "title": "Impact Plastics and How Climate Change Threatens Workers",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2026/05/DCR-deferred-interest-financing-hero.jpg"
+    },
+    {
+      "post_id": 29649,
+      "status": "draft",
+      "date": "2026-05-17T20:33:58",
+      "title": "",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2026/05/DCR-deferred-interest-financing-hero.jpg"
+    },
+    {
+      "post_id": 30109,
+      "status": "draft",
+      "date": "2026-05-17T20:33:56",
+      "title": "",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2026/05/DCR-deferred-interest-financing-hero.jpg"
+    },
+    {
+      "post_id": 30191,
+      "status": "draft",
+      "date": "2026-05-17T20:33:53",
+      "title": "",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2026/05/DCR-deferred-interest-financing-hero.jpg"
+    },
+    {
+      "post_id": 30354,
+      "status": "draft",
+      "date": "2026-05-17T20:33:50",
+      "title": "V2L and the LA Fires",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2026/05/DCR-deferred-interest-financing-hero.jpg"
+    },
+    {
+      "post_id": 31040,
+      "status": "draft",
+      "date": "2026-05-17T20:33:48",
+      "title": "Stripping Federal Protection For Clean Water Harms Just About Everyone",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2026/05/DCR-deferred-interest-financing-hero.jpg"
+    },
+    {
+      "post_id": 31215,
+      "status": "draft",
+      "date": "2026-05-17T20:33:38",
+      "title": "Unprecedented Cuts to the National Science Foundation Endangers Us All",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2026/05/DCR-deferred-interest-financing-hero.jpg"
+    },
+    {
+      "post_id": 31276,
+      "status": "draft",
+      "date": "2026-05-17T20:33:36",
+      "title": "The Public Health Perspective on Cannabis: Uses, Benefits, and Controversies",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2026/05/DCR-deferred-interest-financing-hero.jpg"
+    },
+    {
+      "post_id": 32593,
+      "status": "draft",
+      "date": "2026-05-17T20:33:16",
+      "title": "Evaluating Debt Relief Companies: Criteria for Identifying Top Service Providers",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2026/05/DCR-deferred-interest-financing-hero.jpg"
+    },
+    {
+      "post_id": 33055,
+      "status": "draft",
+      "date": "2026-05-17T20:33:07",
+      "title": "No Kings in That Same Small Western Town",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2026/05/DCR-deferred-interest-financing-hero.jpg"
+    },
+    {
+      "post_id": 31200,
+      "status": "publish",
+      "date": "2025-05-16T15:20:00",
+      "title": "Fears of Violence Lowered 2024 Voter Turnout",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2025/05/DCR-Voting.jpg"
+    },
+    {
+      "post_id": 30532,
+      "status": "publish",
+      "date": "2025-02-26T10:02:23",
+      "title": "For Families With Sick Kids, the Rise of Vaccine Hesitancy Could Be Life-Threatening",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2025/02/DCR-CDC_hero.jpg"
+    },
+    {
+      "post_id": 29560,
+      "status": "draft",
+      "date": "2024-10-02T10:00:35",
+      "title": "Health Risks Are Growing in Mountain Areas Flooded by Hurricane Helene and Cut off From Clean Water, Power And\u00a0Clinics",
+      "_yoast_wpseo_opengraph-image": "https://www.dcreport.org/wp-content/uploads/2026/05/DCR-deferred-interest-financing-hero.jpg"
+    }
+  ]
+}
