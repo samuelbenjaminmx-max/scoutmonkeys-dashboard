@@ -248,5 +248,15 @@
     "after": "<p>Theft of political yard signs is a criminal act. Learn the legal consequences, property rights, and deterrence strategies to vanishing.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-05-30T21:00:14.500517+00:00",
+    "post_id": 195753,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "A slip and fall claim depends on evidence, timing, and documentation. Learn what strengthens or weakens a case and why legal help matters from the start.",
+    "after": "<p>A slip and fall claim depends on evidence, timing, and documentation. Learn what strengthens or weakens a case and why legal help matters from the start.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
