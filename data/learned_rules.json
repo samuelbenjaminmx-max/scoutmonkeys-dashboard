@@ -258,5 +258,15 @@
     "after": "<p>A slip and fall claim depends on evidence, timing, and documentation. Learn what strengthens or weakens a case and why legal help matters from the start.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-05-30T21:01:47.009136+00:00",
+    "post_id": 195757,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "A pedestrian accident shifts control fast. Learn how to stay protected, build a strong claim, and avoid common mistakes that can affect your outcome.",
+    "after": "<p>A pedestrian accident shifts control fast. Learn how to stay protected, build a strong claim, and avoid common mistakes that can affect your outcome.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
