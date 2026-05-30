@@ -268,5 +268,15 @@
     "after": "<p>A pedestrian accident shifts control fast. Learn how to stay protected, build a strong claim, and avoid common mistakes that can affect your outcome.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-05-30T21:03:47.668019+00:00",
+    "post_id": 195763,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Small contracting businesses are adopting smarter productivity software to manage scheduling, invoicing, and crew coordination as operations grow more complex.",
+    "after": "<p>Small contracting businesses are adopting smarter productivity software to manage scheduling, invoicing, and crew coordination as operations grow more complex.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
