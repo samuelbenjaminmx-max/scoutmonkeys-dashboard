@@ -278,5 +278,15 @@
     "after": "<p>Small contracting businesses are adopting smarter productivity software to manage scheduling, invoicing, and crew coordination as operations grow more complex.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-05-30T21:03:54.189201+00:00",
+    "post_id": 195765,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover how telehealth reduces costs for patients and providers — from lower consultation fees to fewer hidden expenses like travel, parking, and lost work.",
+    "after": "<p>Discover how telehealth reduces costs for patients and providers — from lower consultation fees to fewer hidden expenses like travel, parking, and lost work.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
