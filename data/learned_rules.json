@@ -288,5 +288,15 @@
     "after": "<p>Discover how telehealth reduces costs for patients and providers — from lower consultation fees to fewer hidden expenses like travel, parking, and lost work.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-05-30T21:04:28.555161+00:00",
+    "post_id": 33607,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Wondering how long a roof replacement takes? Most standard jobs wrap up in one to two days.",
+    "after": "<p>Wondering how long a roof replacement takes? Most standard jobs wrap up in one to two days.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
