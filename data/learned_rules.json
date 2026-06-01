@@ -348,5 +348,15 @@
     "after": "<p>Dental school tuition now tops $390,000 at private programs. Learn what drives the rising cost of becoming a dentist and how to plan your financing wisely.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-01T21:09:00.568892+00:00",
+    "post_id": 195798,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Dental school tuition now tops $390,000 at private programs. Learn what drives the rising cost of becoming a dentist and how to plan your financing strategy.",
+    "after": "<p>Dental school tuition now tops $390,000 at private programs. Learn what drives the rising cost of becoming a dentist and how to plan your financing strategy.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
