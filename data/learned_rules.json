@@ -318,5 +318,15 @@
     "after": "<p>Discover which backyard features naturally keep children engaged outdoors longer — from play structures and shade to loose toys and family.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-01T20:11:00.333012+00:00",
+    "post_id": 195775,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Learn how to build a stylish wardrobe with essential pieces, smart accessories like Rolex watches, colour coordination, and timeless personal style tips.",
+    "after": "<p>Learn how to build a stylish wardrobe with essential pieces, smart accessories like Rolex watches, colour coordination, and timeless personal style tips.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
