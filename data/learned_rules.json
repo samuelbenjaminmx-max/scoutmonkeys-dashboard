@@ -328,5 +328,15 @@
     "after": "<p>Learn how to build a stylish wardrobe with essential pieces, smart accessories like Rolex watches, colour coordination, and timeless personal style tips.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-01T20:28:51.260157+00:00",
+    "post_id": 195782,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Dental school tuition now tops $390,000 at private programs. Learn what drives the rising cost of becoming a dentist and how to plan your financing wisely.",
+    "after": "<p>Dental school tuition now tops $390,000 at private programs. Learn what drives the rising cost of becoming a dentist and how to plan your financing wisely.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
