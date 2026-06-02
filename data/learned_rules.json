@@ -388,5 +388,15 @@
     "after": "<p>Discover six key quality markers in premium knitwear brands — from natural fibres and fully fashioned construction to hand-finished seams and minimal pilling.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-02T01:50:11.373660+00:00",
+    "post_id": 195826,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover how Supported Independent Living empowers participants with personal choice, tailored support, community connection, and the skills to live.",
+    "after": "<p>Discover how Supported Independent Living empowers participants with personal choice, tailored support, community connection, and the skills to live.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
