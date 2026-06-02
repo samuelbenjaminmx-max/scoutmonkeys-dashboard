@@ -478,5 +478,15 @@
     "after": "<p>Discover how to choose meaningful symbols for your inner peace jewellery, from sacred geometry and gemstones to celestial motifs and animal totems.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-02T02:05:14.607711+00:00",
+    "post_id": 195880,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover seven smart ways to utilise your packaging supplies to save time, cut costs, reduce waste, and strengthen your brand from box to unboxing.",
+    "after": "<p>Discover seven smart ways to utilise your packaging supplies to save time, cut costs, reduce waste, and strengthen your brand from box to unboxing.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
