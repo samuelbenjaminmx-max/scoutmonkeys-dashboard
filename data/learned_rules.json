@@ -368,5 +368,15 @@
     "after": "<p>Discover how Sparkling Yerba Maté delivers balanced caffeine, antioxidants, and mental clarity for steady, jitter-free energy throughout your day.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-02T01:46:06.340774+00:00",
+    "post_id": 195814,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover how specialised wine tours in Adelaide connect you with local winemakers, reveal regional terroir, and deepen your appreciation for viticulture.",
+    "after": "<p>Discover how specialised wine tours in Adelaide connect you with local winemakers, reveal regional terroir, and deepen your appreciation for viticulture.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
