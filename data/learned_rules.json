@@ -398,5 +398,15 @@
     "after": "<p>Discover how Supported Independent Living empowers participants with personal choice, tailored support, community connection, and the skills to live.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-02T01:51:49.644039+00:00",
+    "post_id": 195832,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover the six essential surfboard performance features — volume, rocker, tail shape, rails, bottom contours, and fin setup — to find your perfect board.",
+    "after": "<p>Discover the six essential surfboard performance features — volume, rocker, tail shape, rails, bottom contours, and fin setup — to find your perfect board.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
