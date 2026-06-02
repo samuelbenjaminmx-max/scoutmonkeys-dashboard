@@ -378,5 +378,15 @@
     "after": "<p>Discover how specialised wine tours in Adelaide connect you with local winemakers, reveal regional terroir, and deepen your appreciation for viticulture.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-02T01:48:19.044345+00:00",
+    "post_id": 195819,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover six key quality markers in premium knitwear brands — from natural fibres and fully fashioned construction to hand-finished seams and minimal pilling.",
+    "after": "<p>Discover six key quality markers in premium knitwear brands — from natural fibres and fully fashioned construction to hand-finished seams and minimal pilling.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
