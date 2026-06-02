@@ -438,5 +438,15 @@
     "after": "<p>Discover why a Moses baby basket remains a top nursery choice — offering security, portability, space-saving design, and a timeless keepsake for your family.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-02T01:58:26.136188+00:00",
+    "post_id": 195855,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover seven cutting-edge sensor technologies — from platinum fuel cells to pressure-sensing flow modules — that make modern breathalysers more accurate.",
+    "after": "<p>Discover seven cutting-edge sensor technologies — from platinum fuel cells to pressure-sensing flow modules — that make modern breathalysers more accurate.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
