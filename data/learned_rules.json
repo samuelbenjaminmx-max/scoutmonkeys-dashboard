@@ -358,5 +358,15 @@
     "after": "<p>Dental school tuition now tops $390,000 at private programs. Learn what drives the rising cost of becoming a dentist and how to plan your financing strategy.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-02T01:44:01.307759+00:00",
+    "post_id": 195808,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover how Sparkling Yerba Maté delivers balanced caffeine, antioxidants, and mental clarity for steady, jitter-free energy throughout your day.",
+    "after": "<p>Discover how Sparkling Yerba Maté delivers balanced caffeine, antioxidants, and mental clarity for steady, jitter-free energy throughout your day.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
