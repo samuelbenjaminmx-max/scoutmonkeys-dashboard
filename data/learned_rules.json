@@ -428,5 +428,15 @@
     "after": "<p>Discover how expert chiropractic services address back pain, migraines, sciatica, poor posture, sports injuries, and more for lasting physical wellness.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-02T01:56:51.082605+00:00",
+    "post_id": 195850,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover why a Moses baby basket remains a top nursery choice — offering security, portability, space-saving design, and a timeless keepsake for your family.",
+    "after": "<p>Discover why a Moses baby basket remains a top nursery choice — offering security, portability, space-saving design, and a timeless keepsake for your family.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
