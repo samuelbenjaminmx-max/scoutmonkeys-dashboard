@@ -498,5 +498,25 @@
     "after": "<p>Discover how to select premium wood fired pizza bases for your commercial kitchen, from authentic dough methods to supplier reliability and shelf life.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-02T02:08:40.977298+00:00",
+    "post_id": 195893,
+    "site": "cd",
+    "field": "title_edit",
+    "before": "How to Choose Professional-Quality Women's Work Shoes",
+    "after": "How to Choose Professional-Quality Women&#8217;s Work Shoes",
+    "inferred_rule": "Post title was changed between the draft snapshot and the live post.",
+    "severity": "warning"
+  },
+  {
+    "timestamp": "2026-06-02T02:08:40.977298+00:00",
+    "post_id": 195893,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Find the perfect women's work shoes with expert tips on arch support, breathable materials, sole grip, fit, and heel height for all-day comfort.",
+    "after": "<p>Find the perfect women&#8217;s work shoes with expert tips on arch support, breathable materials, sole grip, fit, and heel height for all-day comfort.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
