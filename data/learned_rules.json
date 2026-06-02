@@ -528,5 +528,15 @@
     "after": "<p>Discover ten reasons protein snacks are evolving beyond bars and shakes, offering more convenience, variety, and flavor for modern on-the-go lifestyles.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-02T18:21:53.280742+00:00",
+    "post_id": 195919,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "From the official NBA app to TikTok and theScore, discover the top apps basketball fans download to follow every moment of the NBA Finals.",
+    "after": "<p>From the official NBA app to TikTok and theScore, discover the top apps basketball fans download to follow every moment of the NBA Finals.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
