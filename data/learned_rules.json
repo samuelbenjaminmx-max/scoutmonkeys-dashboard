@@ -468,5 +468,15 @@
     "after": "<p>Discover how a mobile podiatrist can treat common elderly foot issues including fungal nails, corns, ingrown toenails, diabetic complications, and more at home.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-02T02:03:34.447401+00:00",
+    "post_id": 195875,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover how to choose meaningful symbols for your inner peace jewellery, from sacred geometry and gemstones to celestial motifs and animal totems.",
+    "after": "<p>Discover how to choose meaningful symbols for your inner peace jewellery, from sacred geometry and gemstones to celestial motifs and animal totems.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
