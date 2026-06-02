@@ -448,5 +448,15 @@
     "after": "<p>Discover seven cutting-edge sensor technologies — from platinum fuel cells to pressure-sensing flow modules — that make modern breathalysers more accurate.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-02T02:00:02.029937+00:00",
+    "post_id": 195862,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover the 7 best eye cream ingredients—retinol, hyaluronic acid, vitamin C, caffeine, peptides, niacinamide, and ceramides—for brighter, younger-looking.",
+    "after": "<p>Discover the 7 best eye cream ingredients—retinol, hyaluronic acid, vitamin C, caffeine, peptides, niacinamide, and ceramides—for brighter, younger-looking.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
