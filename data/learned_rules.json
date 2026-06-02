@@ -408,5 +408,15 @@
     "after": "<p>Discover the six essential surfboard performance features — volume, rocker, tail shape, rails, bottom contours, and fin setup — to find your perfect board.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-02T01:53:29.871579+00:00",
+    "post_id": 195837,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover practical steps to navigate difficult emotional challenges, from grounding techniques and self-care to leaning on support networks for lasting.",
+    "after": "<p>Discover practical steps to navigate difficult emotional challenges, from grounding techniques and self-care to leaning on support networks for lasting.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
