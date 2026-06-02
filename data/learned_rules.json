@@ -488,5 +488,15 @@
     "after": "<p>Discover seven smart ways to utilise your packaging supplies to save time, cut costs, reduce waste, and strengthen your brand from box to unboxing.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-02T02:07:02.592019+00:00",
+    "post_id": 195886,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover how to select premium wood fired pizza bases for your commercial kitchen, from authentic dough methods to supplier reliability and shelf life.",
+    "after": "<p>Discover how to select premium wood fired pizza bases for your commercial kitchen, from authentic dough methods to supplier reliability and shelf life.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
