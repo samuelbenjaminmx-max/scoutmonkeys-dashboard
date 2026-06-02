@@ -458,5 +458,15 @@
     "after": "<p>Discover the 7 best eye cream ingredients—retinol, hyaluronic acid, vitamin C, caffeine, peptides, niacinamide, and ceramides—for brighter, younger-looking.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-02T02:01:48.848477+00:00",
+    "post_id": 195868,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover how a mobile podiatrist can treat common elderly foot issues including fungal nails, corns, ingrown toenails, diabetic complications, and more at home.",
+    "after": "<p>Discover how a mobile podiatrist can treat common elderly foot issues including fungal nails, corns, ingrown toenails, diabetic complications, and more at home.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
