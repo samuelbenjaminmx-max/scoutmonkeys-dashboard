@@ -568,5 +568,25 @@
     "after": "<p>A spring 2026 cultural survey covering the Venice Biennale, the indie publishing rebound, repertory cinema, and what it reveals about how culture organises.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-03T16:54:03.039981+00:00",
+    "post_id": 195937,
+    "site": "cd",
+    "field": "title_edit",
+    "before": "DIY Jack Stands vs. Real Ones — Don't Try This",
+    "after": "DIY Jack Stands vs. Real Ones — Don&#8217;t Try This",
+    "inferred_rule": "Post title was changed between the draft snapshot and the live post.",
+    "severity": "warning"
+  },
+  {
+    "timestamp": "2026-06-03T16:54:03.039981+00:00",
+    "post_id": 195937,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Homemade jack stands can collapse without warning. Learn why real, certified jack stands and proper trolley car jack equipment are essential for safe vehicle.",
+    "after": "<p>Homemade jack stands can collapse without warning. Learn why real, certified jack stands and proper trolley car jack equipment are essential for safe vehicle.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
