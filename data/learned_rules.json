@@ -538,5 +538,15 @@
     "after": "<p>From the official NBA app to TikTok and theScore, discover the top apps basketball fans download to follow every moment of the NBA Finals.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-03T14:48:24.443393+00:00",
+    "post_id": 33645,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Discover how regulated iGaming platforms use algorithmic audits, real-time data monitoring, and code certification to ensure accountability.",
+    "after": "<p>Discover how regulated iGaming platforms use algorithmic audits, real-time data monitoring, and code certification to ensure accountability.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
