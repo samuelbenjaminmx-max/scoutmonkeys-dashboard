@@ -548,5 +548,15 @@
     "after": "<p>Discover how regulated iGaming platforms use algorithmic audits, real-time data monitoring, and code certification to ensure accountability.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-03T15:36:17.755104+00:00",
+    "post_id": 33647,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Senior home care helps aging adults maintain dignity, safety, and independence while giving families relief and peace of mind supports.",
+    "after": "<p>Senior home care helps aging adults maintain dignity, safety, and independence while giving families relief and peace of mind supports.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
