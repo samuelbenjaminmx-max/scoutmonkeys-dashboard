@@ -648,5 +648,15 @@
     "after": "<p>Learn the most common mistakes people make when hiring a personal injury lawyer and how to choose the right attorney for your case.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-03T17:29:57.002038+00:00",
+    "post_id": 33657,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Wondering how long a roof replacement takes? Most standard jobs wrap up in one to two days.",
+    "after": "<p>Wondering how long a roof replacement takes? Most standard jobs wrap up in one to two days.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
