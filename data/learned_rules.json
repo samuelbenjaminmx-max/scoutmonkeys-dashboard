@@ -588,5 +588,15 @@
     "after": "<p>Homemade jack stands can collapse without warning. Learn why real, certified jack stands and proper trolley car jack equipment are essential for safe vehicle.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-03T16:55:58.357174+00:00",
+    "post_id": 195943,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Provably fair technology lets players verify crypto casino results using server seeds, client seeds, nonces, and hashes — one part of a full platform review.",
+    "after": "<p>Provably fair technology lets players verify crypto casino results using server seeds, client seeds, nonces, and hashes — one part of a full platform review.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
