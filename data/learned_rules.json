@@ -638,5 +638,15 @@
     "after": "<p>Learn what happens during probate in Washington State, how long it takes, and the best estate planning strategies to avoid it for your.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-03T17:03:33.612546+00:00",
+    "post_id": 33654,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Learn the most common mistakes people make when hiring a personal injury lawyer and how to choose the right attorney for your case.",
+    "after": "<p>Learn the most common mistakes people make when hiring a personal injury lawyer and how to choose the right attorney for your case.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
