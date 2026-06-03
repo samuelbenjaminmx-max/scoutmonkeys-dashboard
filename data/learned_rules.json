@@ -608,5 +608,15 @@
     "after": "<p>Discover the top 7 London family lawyers for cross-border child custody disputes, including Hague Convention cases, international relocation, and jurisdiction.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-03T16:59:05.320982+00:00",
+    "post_id": 195953,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Compare the top UK suppliers of polynucleotide treatments for aesthetic clinics, including Reliable Medicare, Sky Medic, Acre Pharmacy, and more.",
+    "after": "<p>Compare the top UK suppliers of polynucleotide treatments for aesthetic clinics, including Reliable Medicare, Sky Medic, Acre Pharmacy, and more.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
