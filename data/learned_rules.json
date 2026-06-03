@@ -618,5 +618,15 @@
     "after": "<p>Compare the top UK suppliers of polynucleotide treatments for aesthetic clinics, including Reliable Medicare, Sky Medic, Acre Pharmacy, and more.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-03T17:02:45.339327+00:00",
+    "post_id": 33650,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Discover the key factors behind Jili's rising popularity on GameZone, including mobile-first trends, fast access, and engaging digital.",
+    "after": "<p>Discover the key factors behind Jili&#8217;s rising popularity on GameZone, including mobile-first trends, fast access, and engaging digital.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
