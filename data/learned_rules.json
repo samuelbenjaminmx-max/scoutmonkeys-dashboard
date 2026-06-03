@@ -628,5 +628,15 @@
     "after": "<p>Discover the key factors behind Jili&#8217;s rising popularity on GameZone, including mobile-first trends, fast access, and engaging digital.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-03T17:03:08.030119+00:00",
+    "post_id": 33652,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Learn what happens during probate in Washington State, how long it takes, and the best estate planning strategies to avoid it for your.",
+    "after": "<p>Learn what happens during probate in Washington State, how long it takes, and the best estate planning strategies to avoid it for your.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
