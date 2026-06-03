@@ -598,5 +598,15 @@
     "after": "<p>Provably fair technology lets players verify crypto casino results using server seeds, client seeds, nonces, and hashes — one part of a full platform review.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-03T16:57:37.189859+00:00",
+    "post_id": 195949,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover the top 7 London family lawyers for cross-border child custody disputes, including Hague Convention cases, international relocation, and jurisdiction.",
+    "after": "<p>Discover the top 7 London family lawyers for cross-border child custody disputes, including Hague Convention cases, international relocation, and jurisdiction.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
