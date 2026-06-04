@@ -688,5 +688,15 @@
     "after": "<p>As more people move frequently and live in smaller spaces, personal storage has become a key tool for flexible living and managing belongings across life.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-04T23:46:06.519371+00:00",
+    "post_id": 195984,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Shaker style doors suit traditional and contemporary interiors alike. Discover why their timeless simplicity, honest construction, and versatile finishes.",
+    "after": "<p>Shaker style doors suit traditional and contemporary interiors alike. Discover why their timeless simplicity, honest construction, and versatile finishes.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
