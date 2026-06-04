@@ -678,5 +678,15 @@
     "after": "<p>Discover why Laughing Gas Bulk Hybrid is a top choice for balanced highs, offering uplifting mental clarity, gentle relaxation, and rich terpene-driven flavor.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-04T23:44:14.885700+00:00",
+    "post_id": 195979,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "As more people move frequently and live in smaller spaces, personal storage has become a key tool for flexible living and managing belongings across life.",
+    "after": "<p>As more people move frequently and live in smaller spaces, personal storage has become a key tool for flexible living and managing belongings across life.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
