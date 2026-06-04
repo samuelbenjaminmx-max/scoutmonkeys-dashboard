@@ -668,5 +668,15 @@
     "after": "<p>Victor Wembanyama is ascending to global icon status — watch how the young Frenchman is reshaping the NBA&#8217;s brand, marketing, and financial future.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-04T23:42:07.301008+00:00",
+    "post_id": 195975,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover why Laughing Gas Bulk Hybrid is a top choice for balanced highs, offering uplifting mental clarity, gentle relaxation, and rich terpene-driven flavor.",
+    "after": "<p>Discover why Laughing Gas Bulk Hybrid is a top choice for balanced highs, offering uplifting mental clarity, gentle relaxation, and rich terpene-driven flavor.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
