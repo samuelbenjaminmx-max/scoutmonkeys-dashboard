@@ -658,5 +658,15 @@
     "after": "<p>Wondering how long a roof replacement takes? Most standard jobs wrap up in one to two days.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-04T22:38:38.767276+00:00",
+    "post_id": 195967,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Victor Wembanyama is ascending to global icon status — watch how the young Frenchman is reshaping the NBA's brand, marketing, and financial future.",
+    "after": "<p>Victor Wembanyama is ascending to global icon status — watch how the young Frenchman is reshaping the NBA&#8217;s brand, marketing, and financial future.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
