@@ -758,5 +758,15 @@
     "after": "<p>Learn how outdoor industrial equipment survives environmental stress, why simpler systems last longer, and what durability features matter.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-06T01:03:22.908304+00:00",
+    "post_id": 33680,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Learn how to find specialized AI fitness app development companies that deliver adaptive, personalized workout solutions built on real.",
+    "after": "<p>Learn how to find specialized AI fitness app development companies that deliver adaptive, personalized workout solutions built on real.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
