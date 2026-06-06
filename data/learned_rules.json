@@ -708,5 +708,25 @@
     "after": "<p>Find the best kids&#8217; fleece hoodie by checking fabric blend, safety features, wash durability, warmth, fit, pocket design, and skin comfort before you buy.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-06T01:01:26.963081+00:00",
+    "post_id": 196001,
+    "site": "cd",
+    "field": "title_edit",
+    "before": "Walking New York Used to Mean Something Else: How the City's Pedestrian Culture Shifted, and What It Costs Now",
+    "after": "Walking New York Used to Mean Something Else: How the City&#8217;s Pedestrian Culture Shifted, and What It Costs Now",
+    "inferred_rule": "Post title was changed between the draft snapshot and the live post.",
+    "severity": "warning"
+  },
+  {
+    "timestamp": "2026-06-06T01:01:26.963081+00:00",
+    "post_id": 196001,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "New York's walking culture has changed. From gig-economy delivery vehicles to no-fault insurance deadlines, here's what every serious city walker should know.",
+    "after": "<p>New York&#8217;s walking culture has changed. From gig-economy delivery vehicles to no-fault insurance deadlines, here&#8217;s what every serious city walker should know.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
