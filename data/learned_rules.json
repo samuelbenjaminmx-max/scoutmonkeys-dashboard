@@ -748,5 +748,15 @@
     "after": "<p>Federal energy credits ended, EPA pesticide rules are shifting — here&#8217;s what homeowners need to know to stay sustainable and sustainability.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-06T01:02:56.459962+00:00",
+    "post_id": 33677,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Learn how outdoor industrial equipment survives environmental stress, why simpler systems last longer, and what durability features matter.",
+    "after": "<p>Learn how outdoor industrial equipment survives environmental stress, why simpler systems last longer, and what durability features matter.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
