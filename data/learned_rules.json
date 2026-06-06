@@ -698,5 +698,15 @@
     "after": "<p>Shaker style doors suit traditional and contemporary interiors alike. Discover why their timeless simplicity, honest construction, and versatile finishes.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-06T00:59:53.941109+00:00",
+    "post_id": 195997,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Find the best kids' fleece hoodie by checking fabric blend, safety features, wash durability, warmth, fit, pocket design, and skin comfort before you buy.",
+    "after": "<p>Find the best kids&#8217; fleece hoodie by checking fabric blend, safety features, wash durability, warmth, fit, pocket design, and skin comfort before you buy.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
