@@ -798,5 +798,15 @@
     "after": "<p>Before subscribing to fitness programs online, know what to evaluate. This guide covers personalisation, usability, coaching, and.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-06T02:41:57.195891+00:00",
+    "post_id": 196005,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Learn how to find specialized AI fitness app development companies that deliver adaptive, personalized workout solutions built on real machine learning.",
+    "after": "<p>Learn how to find specialized AI fitness app development companies that deliver adaptive, personalized workout solutions built on real machine learning.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
