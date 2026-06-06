@@ -738,5 +738,15 @@
     "after": "<p>Rising costs and burnout are pushing Americans to rethink work. Discover how side hustles, investing, and freelancing are reshaping.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-06T01:02:28.551470+00:00",
+    "post_id": 33674,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Federal energy credits ended, EPA pesticide rules are shifting — here's what homeowners need to know to stay sustainable and sustainability.",
+    "after": "<p>Federal energy credits ended, EPA pesticide rules are shifting — here&#8217;s what homeowners need to know to stay sustainable and sustainability.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
