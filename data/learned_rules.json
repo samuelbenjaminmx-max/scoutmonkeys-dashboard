@@ -828,5 +828,15 @@
     "after": "<p>A practical checklist for choosing a no wagering casino in Australia: licensing, withdrawal speed, bonus terms, and what separates a good offer from a great.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-08T18:00:54.944365+00:00",
+    "post_id": 196029,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "A practical guide for Australian players on roulette variants and betting options at Joka Room Casino, covering European, American, and French formats.",
+    "after": "<p>A practical guide for Australian players on roulette variants and betting options at Joka Room Casino, covering European, American, and French formats.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
