@@ -838,5 +838,15 @@
     "after": "<p>A practical guide for Australian players on roulette variants and betting options at Joka Room Casino, covering European, American, and French formats.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-08T18:01:49.550396+00:00",
+    "post_id": 33697,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Discover practical fundraising strategies for local sports teams — from community partnerships and custom merchandise to events and.",
+    "after": "<p>Discover practical fundraising strategies for local sports teams — from community partnerships and custom merchandise to events and.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
