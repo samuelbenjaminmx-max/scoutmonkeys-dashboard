@@ -928,5 +928,15 @@
     "after": "<p>Professional aviation offers real demand, strong salaries, and a defined path from first lesson to career A Different.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-09T17:15:57.418678+00:00",
+    "post_id": 196066,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Plant-based bakers are creating stunning celebration cakes for every guest. Explore flavors, design tips, allergen advice, and how to order with confidence.",
+    "after": "<p>Plant-based bakers are creating stunning celebration cakes for every guest. Explore flavors, design tips, allergen advice, and how to order with confidence.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
