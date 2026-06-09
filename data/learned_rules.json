@@ -848,5 +848,15 @@
     "after": "<p>Discover practical fundraising strategies for local sports teams — from community partnerships and custom merchandise to events and.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-09T16:54:02.060886+00:00",
+    "post_id": 196038,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Planning a Smoky Mountains trip near Dollywood? These practical tips on lodging, packing, and seasonal conditions help you enjoy a stress-free mountain escape.",
+    "after": "<p>Planning a Smoky Mountains trip near Dollywood? These practical tips on lodging, packing, and seasonal conditions help you enjoy a stress-free mountain escape.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
