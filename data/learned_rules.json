@@ -908,5 +908,15 @@
     "after": "<p>Newport Beach native John McEntee backs Steve Hilton&#8217;s California governor campaign with a maximum contribution, betting Republicans can compete in the state.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-09T17:11:52.480288+00:00",
+    "post_id": 196057,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Learn which ingredients make a brow serum worth buying, which to avoid, and how to apply it correctly for fuller, denser brows in 10 to 16 weeks.",
+    "after": "<p>Learn which ingredients make a brow serum worth buying, which to avoid, and how to apply it correctly for fuller, denser brows in 10 to 16 weeks.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
