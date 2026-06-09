@@ -868,5 +868,15 @@
     "after": "<p>Discover the best bakuchiol eye creams for crow&#8217;s feet, smoothing fine lines and wrinkles without retinol&#8217;s flaking or irritation.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-09T17:08:42.426891+00:00",
+    "post_id": 196049,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "A single unlicensed track can redirect all your ad revenue. Learn how music licensing works in 2026 and how Epidemic Sound keeps creators monetized across.",
+    "after": "<p>A single unlicensed track can redirect all your ad revenue. Learn how music licensing works in 2026 and how Epidemic Sound keeps creators monetized across.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
