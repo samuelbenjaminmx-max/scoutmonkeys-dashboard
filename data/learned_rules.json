@@ -938,5 +938,15 @@
     "after": "<p>Plant-based bakers are creating stunning celebration cakes for every guest. Explore flavors, design tips, allergen advice, and how to order with confidence.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-09T17:51:05.059436+00:00",
+    "post_id": 33706,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Learn how to optimize images for AI-powered search with strategies covering relevance, image quality, entity identification, optimization.",
+    "after": "<p>Learn how to optimize images for AI-powered search with strategies covering relevance, image quality, entity identification, optimization.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
