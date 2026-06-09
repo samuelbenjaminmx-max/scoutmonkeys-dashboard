@@ -918,5 +918,15 @@
     "after": "<p>Learn which ingredients make a brow serum worth buying, which to avoid, and how to apply it correctly for fuller, denser brows in 10 to 16 weeks.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-09T17:13:36.548045+00:00",
+    "post_id": 196061,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Professional aviation offers real demand, strong salaries, and a defined path from first lesson to career A Different.",
+    "after": "<p>Professional aviation offers real demand, strong salaries, and a defined path from first lesson to career A Different.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
