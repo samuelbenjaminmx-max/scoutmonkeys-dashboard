@@ -948,5 +948,25 @@
     "after": "<p>Learn how to optimize images for AI-powered search with strategies covering relevance, image quality, entity identification, optimization.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-10T16:28:22.868310+00:00",
+    "post_id": 196086,
+    "site": "cd",
+    "field": "title_edit",
+    "before": "Body Temperature Scanners at Cultural Events: How Museums, Galleries & Venues Are Elevating Entry Security",
+    "after": "Body Temperature Scanners at Cultural Events: How Museums, Galleries &#038; Venues Are Elevating Entry Security",
+    "inferred_rule": "Post title was changed between the draft snapshot and the live post.",
+    "severity": "warning"
+  },
+  {
+    "timestamp": "2026-06-10T16:28:22.868310+00:00",
+    "post_id": 196086,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover how museums, galleries, and cultural venues use body temperature scanners to enhance entry security, protect visitors, and ensure safer event.",
+    "after": "<p>Discover how museums, galleries, and cultural venues use body temperature scanners to enhance entry security, protect visitors, and ensure safer event.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
