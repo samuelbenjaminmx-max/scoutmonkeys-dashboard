@@ -1028,5 +1028,15 @@
     "after": "<p>Find the right villa in Canggu for your Bali trip. Compare neighborhoods, amenities, and key questions to ask before you book your private stay.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-10T16:40:34.903027+00:00",
+    "post_id": 196117,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "A practical step-by-step guide to buying property in Australia in 2026, covering finance, due diligence, contracts, and settlement for legal professionals and.",
+    "after": "<p>A practical step-by-step guide to buying property in Australia in 2026, covering finance, due diligence, contracts, and settlement for legal professionals and.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
