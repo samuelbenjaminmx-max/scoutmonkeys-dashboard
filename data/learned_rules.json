@@ -1098,5 +1098,15 @@
     "after": "<p>Discover what makes travel truly unforgettable — from comfortable accommodations in Gatlinburg to local culture, nature, and meaningful shared moments.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-11T20:52:15.418519+00:00",
+    "post_id": 33730,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Washington D.C. law firms can win more clients with local SEO. Learn how rankings, reviews, and Google Business Profile drive boost.",
+    "after": "<p>Washington D.C. law firms can win more clients with local SEO. Learn how rankings, reviews, and Google Business Profile drive boost.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
