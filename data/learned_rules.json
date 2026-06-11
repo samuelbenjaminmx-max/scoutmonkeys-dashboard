@@ -1078,5 +1078,15 @@
     "after": "<p>Discover what young kids and teenagers each need from a neighborhood, and how to evaluate a community that works well for every stage of childhood.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-11T20:49:52.918099+00:00",
+    "post_id": 196155,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover how US sweepstakes gaming platforms use free coin promotions and dual-currency models to offer legal, risk-free casino-style entertainment.",
+    "after": "<p>Discover how US sweepstakes gaming platforms use free coin promotions and dual-currency models to offer legal, risk-free casino-style entertainment.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
