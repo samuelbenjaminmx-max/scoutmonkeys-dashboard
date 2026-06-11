@@ -1138,5 +1138,35 @@
     "after": "<p>Practical tips for aging in place comfortably — from home adaptations and smart technology to health habits and staying socially living.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-11T22:03:12.235820+00:00",
+    "post_id": 196164,
+    "site": "cd",
+    "field": "title_edit",
+    "before": "Must-Have Five Nights at Freddy's Figures to Collect",
+    "after": "Must-Have Five Nights at Freddy&#8217;s Figures to Collect",
+    "inferred_rule": "Post title was changed between the draft snapshot and the live post.",
+    "severity": "warning"
+  },
+  {
+    "timestamp": "2026-06-11T22:03:12.235820+00:00",
+    "post_id": 196164,
+    "site": "cd",
+    "field": "link_target_or_anchor_changed",
+    "before": "{\"href\": \"https://youtooz.com/collections/fnaf\", \"text\": \"Five Nights at Freddy's figures\", \"bold\": true, \"nofollow\": false, \"new_tab\": true}",
+    "after": "{\"href\": \"https://youtooz.com/collections/fnaf\", \"text\": \"Five Nights at Freddy’s figures\", \"bold\": true, \"nofollow\": false, \"new_tab\": true}",
+    "inferred_rule": "A link's URL or visible anchor text changed (link slot 1).",
+    "severity": "critical"
+  },
+  {
+    "timestamp": "2026-06-11T22:03:12.235820+00:00",
+    "post_id": 196164,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover which Five Nights at Freddy's figures are worth collecting, from Freddy and Foxy to rare shadow variants, plush, and limited-edition releases.",
+    "after": "<p>Discover which Five Nights at Freddy&#8217;s figures are worth collecting, from Freddy and Foxy to rare shadow variants, plush, and limited-edition releases.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
