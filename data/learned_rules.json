@@ -1108,5 +1108,15 @@
     "after": "<p>Washington D.C. law firms can win more clients with local SEO. Learn how rankings, reviews, and Google Business Profile drive boost.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-11T20:52:39.159759+00:00",
+    "post_id": 33732,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Learn how red light and traffic cameras work in Macon, GA, how violations are issued, and what rights drivers have under Georgia.",
+    "after": "<p>Learn how red light and traffic cameras work in Macon, GA, how violations are issued, and what rights drivers have under Georgia.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
