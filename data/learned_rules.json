@@ -1088,5 +1088,15 @@
     "after": "<p>Discover how US sweepstakes gaming platforms use free coin promotions and dual-currency models to offer legal, risk-free casino-style entertainment.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-11T20:51:44.341038+00:00",
+    "post_id": 196159,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover what makes travel truly unforgettable — from comfortable accommodations in Gatlinburg to local culture, nature, and meaningful shared moments.",
+    "after": "<p>Discover what makes travel truly unforgettable — from comfortable accommodations in Gatlinburg to local culture, nature, and meaningful shared moments.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
