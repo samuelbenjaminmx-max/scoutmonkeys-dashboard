@@ -1118,5 +1118,15 @@
     "after": "<p>Learn how red light and traffic cameras work in Macon, GA, how violations are issued, and what rights drivers have under Georgia.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-11T20:53:06.643999+00:00",
+    "post_id": 33734,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Small business owners face fraud, cyber threats, and legal risks. Learn practical steps to protect your finances, data, and themselves.",
+    "after": "<p>Small business owners face fraud, cyber threats, and legal risks. Learn practical steps to protect your finances, data, and themselves.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
