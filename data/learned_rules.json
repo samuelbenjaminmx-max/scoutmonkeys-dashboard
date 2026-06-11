@@ -1168,5 +1168,15 @@
     "after": "<p>Discover which Five Nights at Freddy&#8217;s figures are worth collecting, from Freddy and Foxy to rare shadow variants, plush, and limited-edition releases.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-11T22:40:26.062134+00:00",
+    "post_id": 33739,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Learn how to choose the right medical red light therapy system by evaluating wavelength, power output, safety certifications, choosing.",
+    "after": "<p>Learn how to choose the right medical red light therapy system by evaluating wavelength, power output, safety certifications, choosing.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
