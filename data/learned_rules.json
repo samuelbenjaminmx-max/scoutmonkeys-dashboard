@@ -1198,5 +1198,15 @@
     "after": "<p>Discover a complete bridal skincare routine with a 12-month wedding skin prep timeline, facial booking tips, and final-week beauty advice.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-12T15:27:30.451707+00:00",
+    "post_id": 33744,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Remote work, multi-location operations, and fraud risks are pushing businesses to strengthen internal payroll verification processes and.",
+    "after": "<p>Remote work, multi-location operations, and fraud risks are pushing businesses to strengthen internal payroll verification processes and.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
