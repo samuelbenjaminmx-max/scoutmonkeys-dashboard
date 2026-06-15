@@ -1208,5 +1208,15 @@
     "after": "<p>Remote work, multi-location operations, and fraud risks are pushing businesses to strengthen internal payroll verification processes and.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-15T17:54:14.719443+00:00",
+    "post_id": 196262,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover the best destinations for art, history, and local culture — from Florence and Kyoto to Istanbul, Mexico City, and beyond. Plan your cultural journey.",
+    "after": "<p>Discover the best destinations for art, history, and local culture — from Florence and Kyoto to Istanbul, Mexico City, and beyond. Plan your cultural journey.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
