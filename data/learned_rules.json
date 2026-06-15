@@ -1268,5 +1268,15 @@
     "after": "<p>A practical checklist for first-home buyers in Melbourne on how to verify a broker, what to ask, and which Victoria-specific programs to raise before you sign.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-15T21:30:13.125548+00:00",
+    "post_id": 196314,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Caveat loans offer fast short-term property finance in Australia. Learn how they work, what they cost, and how to compare your options before you commit.",
+    "after": "<p>Caveat loans offer fast short-term property finance in Australia. Learn how they work, what they cost, and how to compare your options before you commit.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
