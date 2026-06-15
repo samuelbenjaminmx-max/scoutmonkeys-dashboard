@@ -1248,5 +1248,15 @@
     "after": "<p>Discover how a walkie-talkie system can reduce recurring communication costs, boost productivity, and deliver measurable long-term ROI for businesses and teams.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-15T21:24:03.452011+00:00",
+    "post_id": 196301,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Learn how Australian online pokies players can set a smart session budget, match bets to game volatility, and make the most of bonus casino offers.",
+    "after": "<p>Learn how Australian online pokies players can set a smart session budget, match bets to game volatility, and make the most of bonus casino offers.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
