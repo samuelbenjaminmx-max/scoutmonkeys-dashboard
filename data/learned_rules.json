@@ -1278,5 +1278,15 @@
     "after": "<p>Caveat loans offer fast short-term property finance in Australia. Learn how they work, what they cost, and how to compare your options before you commit.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-15T21:55:05.900022+00:00",
+    "post_id": 33771,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Jack Hughes' overtime goal at the Milano Cortina Olympics reignited debate over the NHL All-Star Game as fans demand more meaningful.",
+    "after": "<p>Jack Hughes&#8217; overtime goal at the Milano Cortina Olympics reignited debate over the NHL All-Star Game as fans demand more meaningful.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
