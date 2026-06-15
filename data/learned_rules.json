@@ -1218,5 +1218,15 @@
     "after": "<p>Discover the best destinations for art, history, and local culture — from Florence and Kyoto to Istanbul, Mexico City, and beyond. Plan your cultural journey.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-15T18:08:40.644382+00:00",
+    "post_id": 196273,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "From PlayStation price hikes to AI-driven chip costs, gamers face unique inflation pressures that are reshaping who plays and how much they spend.",
+    "after": "<p>From PlayStation price hikes to AI-driven chip costs, gamers face unique inflation pressures that are reshaping who plays and how much they spend.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
