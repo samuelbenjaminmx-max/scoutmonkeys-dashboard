@@ -1228,5 +1228,15 @@
     "after": "<p>From PlayStation price hikes to AI-driven chip costs, gamers face unique inflation pressures that are reshaping who plays and how much they spend.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-15T21:20:53.577048+00:00",
+    "post_id": 196293,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Clear braces offer South Riding patients a discreet, comfortable path to a straighter smile with lasting oral health benefits and professional orthodontic care.",
+    "after": "<p>Clear braces offer South Riding patients a discreet, comfortable path to a straighter smile with lasting oral health benefits and professional orthodontic care.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
