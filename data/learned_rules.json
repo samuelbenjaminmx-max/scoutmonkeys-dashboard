@@ -1288,5 +1288,15 @@
     "after": "<p>Jack Hughes&#8217; overtime goal at the Milano Cortina Olympics reignited debate over the NHL All-Star Game as fans demand more meaningful.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-15T22:27:38.635714+00:00",
+    "post_id": 33774,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "From AI rules and voting reform to assisted dying and cyber laws, the first half of 2026 put governments and citizens through a politics.",
+    "after": "<p>From AI rules and voting reform to assisted dying and cyber laws, the first half of 2026 put governments and citizens through a politics.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
