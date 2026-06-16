@@ -1298,5 +1298,25 @@
     "after": "<p>From AI rules and voting reform to assisted dying and cyber laws, the first half of 2026 put governments and citizens through a politics.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-16T17:57:09.823587+00:00",
+    "post_id": 33778,
+    "site": "dcr",
+    "field": "title_edit",
+    "before": "Trump's CFTC Gutting Is a Gift to Offshore Crash Gambling",
+    "after": "Trump&#8217;s CFTC Gutting Is a Gift to Offshore Crash Gambling",
+    "inferred_rule": "Post title was changed between the draft snapshot and the live post.",
+    "severity": "warning"
+  },
+  {
+    "timestamp": "2026-06-16T17:57:09.823587+00:00",
+    "post_id": 33778,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Senator Warren's letter exposes how Trump's CFTC gutting created a regulatory vacuum that benefits offshore crash gambling sites operating.",
+    "after": "<p>Senator Warren&#8217;s letter exposes how Trump&#8217;s CFTC gutting created a regulatory vacuum that benefits offshore crash gambling sites operating.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
