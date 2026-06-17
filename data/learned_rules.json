@@ -1368,5 +1368,15 @@
     "after": "<p>Explore the top 10 advantages of creatine for boosting strength and exercise performance. Learn how this supplement can transform your fitness journey.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-17T15:55:36.259509+00:00",
+    "post_id": 33783,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Learn how brands use brand tracking, sentiment analysis, and social listening to detect early warning signals in online conversations.",
+    "after": "<p>Learn how brands use brand tracking, sentiment analysis, and social listening to detect early warning signals in online conversations.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
