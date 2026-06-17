@@ -1348,5 +1348,15 @@
     "after": "<p>Explore how businesses can build digital trust through post-quantum cryptography, transparency, and proactive cybersecurity in a rapidly evolving.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-17T15:48:33.639653+00:00",
+    "post_id": 196346,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Financial pressure tests every business. Learn how cash flow management, early communication, and specialist advice can help your organization recover and.",
+    "after": "<p>Financial pressure tests every business. Learn how cash flow management, early communication, and specialist advice can help your organization recover and.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
