@@ -1318,5 +1318,15 @@
     "after": "<p>Senator Warren&#8217;s letter exposes how Trump&#8217;s CFTC gutting created a regulatory vacuum that benefits offshore crash gambling sites operating.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-17T15:43:23.604696+00:00",
+    "post_id": 196333,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "A curated guide to the best proxy providers in 2026 — from enterprise giants like Bright Data and Oxylabs to rising contenders like Evomi offering ethical.",
+    "after": "<p>A curated guide to the best proxy providers in 2026 — from enterprise giants like Bright Data and Oxylabs to rising contenders like Evomi offering ethical.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
