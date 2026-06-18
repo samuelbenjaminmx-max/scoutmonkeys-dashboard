@@ -1428,5 +1428,15 @@
     "after": "<p>Discover Roobet Originals — in-house casino games like Mission Uncrossable that combine minimalist design, provably fair technology, and crypto support.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-18T23:20:45.635034+00:00",
+    "post_id": 196398,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover how a red tablecloth transforms any outdoor gathering into a warm, memorable picnic full of color, comfort, and easy joy.",
+    "after": "<p>Discover how a red tablecloth transforms any outdoor gathering into a warm, memorable picnic full of color, comfort, and easy joy.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
