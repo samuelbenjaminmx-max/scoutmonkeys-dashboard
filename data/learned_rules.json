@@ -1388,5 +1388,15 @@
     "after": "<p>A curated guide to the best proxy providers in 2026 — from enterprise giants like Bright Data and Oxylabs to rising contenders like Evomi offering ethical.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-18T18:59:53.407691+00:00",
+    "post_id": 196379,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Caregiving can take a toll on women over 50. Learn healthy coping strategies, how to set boundaries, and when to seek help for stress or substance use.",
+    "after": "<p>Caregiving can take a toll on women over 50. Learn healthy coping strategies, how to set boundaries, and when to seek help for stress or substance use.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
