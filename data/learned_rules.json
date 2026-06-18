@@ -1408,5 +1408,15 @@
     "after": "<p>Social media has transformed how consumers evaluate expertise. Discover how authenticity, transparency, and consistency now shape reshaping.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-18T19:58:55.462842+00:00",
+    "post_id": 33808,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Washington reduced motorcycle fatalities from 139 to 111 in 2024, a 20.14% decline, ranking 4th nationally in safety strengthening.",
+    "after": "<p>Washington reduced motorcycle fatalities from 139 to 111 in 2024, a 20.14% decline, ranking 4th nationally in safety strengthening.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
