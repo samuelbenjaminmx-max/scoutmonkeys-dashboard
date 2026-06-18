@@ -1398,5 +1398,15 @@
     "after": "<p>Caregiving can take a toll on women over 50. Learn healthy coping strategies, how to set boundaries, and when to seek help for stress or substance use.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-18T19:58:17.576585+00:00",
+    "post_id": 33806,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Social media has transformed how consumers evaluate expertise. Discover how authenticity, transparency, and consistency now shape reshaping.",
+    "after": "<p>Social media has transformed how consumers evaluate expertise. Discover how authenticity, transparency, and consistency now shape reshaping.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
