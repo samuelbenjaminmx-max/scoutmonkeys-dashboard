@@ -1418,5 +1418,15 @@
     "after": "<p>Washington reduced motorcycle fatalities from 139 to 111 in 2024, a 20.14% decline, ranking 4th nationally in safety strengthening.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-18T20:33:01.573149+00:00",
+    "post_id": 196392,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover Roobet Originals — in-house casino games like Mission Uncrossable that combine minimalist design, provably fair technology, and crypto support.",
+    "after": "<p>Discover Roobet Originals — in-house casino games like Mission Uncrossable that combine minimalist design, provably fair technology, and crypto support.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
