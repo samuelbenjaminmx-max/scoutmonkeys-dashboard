@@ -1558,5 +1558,15 @@
     "after": "<p>Plan your yard care expenses, choose between DIY and professional help, invest in durable tools, and adopt sustainable practices to keeping.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-22T22:39:26.942719+00:00",
+    "post_id": 196484,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Explore how enterprise technology leaders integrate threat modeling, encryption, and automated testing into every phase of custom software development.",
+    "after": "<p>Explore how enterprise technology leaders integrate threat modeling, encryption, and automated testing into every phase of custom software development.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
