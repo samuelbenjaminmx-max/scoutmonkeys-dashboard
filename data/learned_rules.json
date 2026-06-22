@@ -1488,5 +1488,15 @@
     "after": "<p>AI-powered math tutors promise personalized, affordable support for every student — but are they a revolution or just hype.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-22T19:51:37.320941+00:00",
+    "post_id": 196452,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Find out how long before bed to take Delta 8 gummies for sleep, including tips on timing, meal schedules, and building a consistent nightly routine.",
+    "after": "<p>Find out how long before bed to take Delta 8 gummies for sleep, including tips on timing, meal schedules, and building a consistent nightly routine.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
