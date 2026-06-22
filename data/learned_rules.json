@@ -1498,5 +1498,15 @@
     "after": "<p>Find out how long before bed to take Delta 8 gummies for sleep, including tips on timing, meal schedules, and building a consistent nightly routine.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-22T19:56:47.919112+00:00",
+    "post_id": 196459,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Indonesia U19 beat Myanmar 3-0 in the AFF U19 Championship 2026 opener, with goals from Arkhan Kaka and Dimas Wicaksono showing structure, fitness, and.",
+    "after": "<p>Indonesia U19 beat Myanmar 3-0 in the AFF U19 Championship 2026 opener, with goals from Arkhan Kaka and Dimas Wicaksono showing structure, fitness, and.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
