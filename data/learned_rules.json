@@ -1508,5 +1508,15 @@
     "after": "<p>Indonesia U19 beat Myanmar 3-0 in the AFF U19 Championship 2026 opener, with goals from Arkhan Kaka and Dimas Wicaksono showing structure, fitness, and.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-22T19:59:35.445174+00:00",
+    "post_id": 196465,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Online entertainment has quietly become the default way people spend free time — discover how unlimited choice and easy access reshaped daily routines.",
+    "after": "<p>Online entertainment has quietly become the default way people spend free time — discover how unlimited choice and easy access reshaped daily routines.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
