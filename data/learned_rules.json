@@ -1538,5 +1538,15 @@
     "after": "<p>Plan your yard care expenses, choose between DIY and professional help, invest in durable tools, and adopt sustainable practices to keeping.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-22T20:12:10.264054+00:00",
+    "post_id": 33827,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Professional translation services offer more than converted text — they provide certified accuracy, project management, proactive.",
+    "after": "<p>Professional translation services offer more than converted text — they provide certified accuracy, project management, proactive.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
