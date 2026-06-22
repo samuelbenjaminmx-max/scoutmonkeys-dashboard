@@ -1438,5 +1438,15 @@
     "after": "<p>Discover how a red tablecloth transforms any outdoor gathering into a warm, memorable picnic full of color, comfort, and easy joy.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-22T19:26:38.008686+00:00",
+    "post_id": 196430,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "A red table cloth transforms any outdoor meal into a warm, memorable gathering. Discover how this simple detail sets the mood for the perfect picnic.",
+    "after": "<p>A red table cloth transforms any outdoor meal into a warm, memorable gathering. Discover how this simple detail sets the mood for the perfect picnic.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
