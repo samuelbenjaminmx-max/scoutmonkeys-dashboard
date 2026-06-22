@@ -1518,5 +1518,15 @@
     "after": "<p>Online entertainment has quietly become the default way people spend free time — discover how unlimited choice and easy access reshaped daily routines.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-22T20:03:24.748547+00:00",
+    "post_id": 196471,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Online subscriptions quietly drain your budget through forgotten trials, duplicate services, and auto-renewals. Here's how to stay lightly in control.",
+    "after": "<p>Online subscriptions quietly drain your budget through forgotten trials, duplicate services, and auto-renewals. Here&#8217;s how to stay lightly in control.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
