@@ -1468,5 +1468,15 @@
     "after": "<p>Discover how developing global awareness and cross-cultural communication skills can open new career opportunities in today&#8217;s interconnected world.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-22T19:45:42.566021+00:00",
+    "post_id": 196444,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Explore how public leaders strengthen communities through accountability, problem-solving, and justice administration — and how advanced education supports.",
+    "after": "<p>Explore how public leaders strengthen communities through accountability, problem-solving, and justice administration — and how advanced education supports.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
