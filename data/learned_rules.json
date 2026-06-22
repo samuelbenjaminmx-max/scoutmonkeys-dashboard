@@ -1528,5 +1528,15 @@
     "after": "<p>Online subscriptions quietly drain your budget through forgotten trials, duplicate services, and auto-renewals. Here&#8217;s how to stay lightly in control.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-22T20:11:06.537159+00:00",
+    "post_id": 33825,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Plan your yard care expenses, choose between DIY and professional help, invest in durable tools, and adopt sustainable practices to keeping.",
+    "after": "<p>Plan your yard care expenses, choose between DIY and professional help, invest in durable tools, and adopt sustainable practices to keeping.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
