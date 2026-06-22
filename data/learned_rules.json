@@ -1478,5 +1478,15 @@
     "after": "<p>Explore how public leaders strengthen communities through accountability, problem-solving, and justice administration — and how advanced education supports.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-22T19:49:05.497231+00:00",
+    "post_id": 196448,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "AI-powered math tutors promise personalized, affordable support for every student — but are they a revolution or just hype.",
+    "after": "<p>AI-powered math tutors promise personalized, affordable support for every student — but are they a revolution or just hype.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
