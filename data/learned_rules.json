@@ -1638,5 +1638,15 @@
     "after": "<p>Compare how Focus, Newsweek, and Airomedical rank German hospitals — each using different criteria from physician reputation to clinical case volumes.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-23T20:55:07.154983+00:00",
+    "post_id": 196520,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Learn how to split pairs in online blackjack step by step, including which pairs to split, how the dealer's upcard affects decisions, and resplitting rules.",
+    "after": "<p>Learn how to split pairs in online blackjack step by step, including which pairs to split, how the dealer&#8217;s upcard affects decisions, and resplitting rules.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
