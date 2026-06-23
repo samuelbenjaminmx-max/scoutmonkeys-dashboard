@@ -1618,5 +1618,25 @@
     "after": "<p>Discover what makes Keith Haring artwork so valuable, from rarity and provenance to cultural influence and authenticity documentation for serious collectors.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-23T20:53:18.766069+00:00",
+    "post_id": 196516,
+    "site": "cd",
+    "field": "title_edit",
+    "before": "Exploring German Hospital Rankings by Focus, Airomedical & Newsweek",
+    "after": "Exploring German Hospital Rankings by Focus, Airomedical &#038; Newsweek",
+    "inferred_rule": "Post title was changed between the draft snapshot and the live post.",
+    "severity": "warning"
+  },
+  {
+    "timestamp": "2026-06-23T20:53:18.766069+00:00",
+    "post_id": 196516,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Compare how Focus, Newsweek, and Airomedical rank German hospitals — each using different criteria from physician reputation to clinical case volumes.",
+    "after": "<p>Compare how Focus, Newsweek, and Airomedical rank German hospitals — each using different criteria from physician reputation to clinical case volumes.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
