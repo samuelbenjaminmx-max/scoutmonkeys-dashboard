@@ -1578,5 +1578,15 @@
     "after": "<p>Explore how galleries and artists move large works across borders and why freight marketplaces like GetTransport are reshaping art world logistics.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-23T20:46:32.700790+00:00",
+    "post_id": 196500,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Some people miss toxic relationships more than healthy ones. Discover why intensity is mistaken for love and how to break the pattern for good.",
+    "after": "<p>Some people miss toxic relationships more than healthy ones. Discover why intensity is mistaken for love and how to break the pattern for good.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
