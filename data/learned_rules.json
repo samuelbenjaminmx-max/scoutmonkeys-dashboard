@@ -1588,5 +1588,15 @@
     "after": "<p>Some people miss toxic relationships more than healthy ones. Discover why intensity is mistaken for love and how to break the pattern for good.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-23T20:48:10.404213+00:00",
+    "post_id": 196504,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover the top 10 science-backed benefits of creatine for strength, power output, lean mass, recovery, cognitive performance, and long-term safety.",
+    "after": "<p>Discover the top 10 science-backed benefits of creatine for strength, power output, lean mass, recovery, cognitive performance, and long-term safety.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
