@@ -1608,5 +1608,15 @@
     "after": "<p>For many professionals, debt isn&#8217;t just a number — it becomes a quiet framework shaping decisions, timelines, and identity across an entire career.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-23T20:51:45.259294+00:00",
+    "post_id": 196512,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover what makes Keith Haring artwork so valuable, from rarity and provenance to cultural influence and authenticity documentation for serious collectors.",
+    "after": "<p>Discover what makes Keith Haring artwork so valuable, from rarity and provenance to cultural influence and authenticity documentation for serious collectors.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
