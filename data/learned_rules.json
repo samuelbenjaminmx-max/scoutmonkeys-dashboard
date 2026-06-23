@@ -1598,5 +1598,15 @@
     "after": "<p>Discover the top 10 science-backed benefits of creatine for strength, power output, lean mass, recovery, cognitive performance, and long-term safety.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-23T20:49:57.159171+00:00",
+    "post_id": 196508,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "For many professionals, debt isn't just a number — it becomes a quiet framework shaping decisions, timelines, and identity across an entire career.",
+    "after": "<p>For many professionals, debt isn&#8217;t just a number — it becomes a quiet framework shaping decisions, timelines, and identity across an entire career.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
