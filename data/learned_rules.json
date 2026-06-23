@@ -1568,5 +1568,15 @@
     "after": "<p>Explore how enterprise technology leaders integrate threat modeling, encryption, and automated testing into every phase of custom software development.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-23T20:44:08.007710+00:00",
+    "post_id": 196496,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Explore how galleries and artists move large works across borders and why freight marketplaces like GetTransport are reshaping art world logistics.",
+    "after": "<p>Explore how galleries and artists move large works across borders and why freight marketplaces like GetTransport are reshaping art world logistics.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
