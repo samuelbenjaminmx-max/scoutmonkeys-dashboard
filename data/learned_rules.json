@@ -1658,5 +1658,15 @@
     "after": "<p>Plan a luxury wedding transfer from St Tropez to Nice by private helicopter — timing, guest flow, luggage, privacy, and arrival advice for the French Riviera.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-24T16:49:34.632856+00:00",
+    "post_id": 196546,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Learn simple best practices for managing mortgage payments, from budget planning and automatic payments to working with a mortgage broker and making extra.",
+    "after": "<p>Learn simple best practices for managing mortgage payments, from budget planning and automatic payments to working with a mortgage broker and making extra.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
