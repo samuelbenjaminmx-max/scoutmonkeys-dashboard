@@ -1698,5 +1698,15 @@
     "after": "<p>Cannabis branding requires more than great packaging — learn how positioning, consistency, and compliance shape brands that earn lasting consumer trust.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-24T16:53:42.331704+00:00",
+    "post_id": 33843,
+    "site": "dcr",
+    "field": "meta_description_changed",
+    "before": "Convenience, wider selection, and better product information are driving more consumers to buy everyday essentials online instead of.",
+    "after": "<p>Convenience, wider selection, and better product information are driving more consumers to buy everyday essentials online instead of.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
