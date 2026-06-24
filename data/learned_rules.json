@@ -1668,5 +1668,15 @@
     "after": "<p>Learn simple best practices for managing mortgage payments, from budget planning and automatic payments to working with a mortgage broker and making extra.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-24T16:51:24.317672+00:00",
+    "post_id": 196550,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover practical strategies to reduce monthly vehicle costs, from reviewing auto loan refinancing options to improving fuel efficiency and cutting.",
+    "after": "<p>Discover practical strategies to reduce monthly vehicle costs, from reviewing auto loan refinancing options to improving fuel efficiency and cutting.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
