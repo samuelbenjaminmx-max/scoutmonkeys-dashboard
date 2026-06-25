@@ -1748,5 +1748,15 @@
     "after": "<p>Zinc, vitamin D, Tongkat Ali, Shilajit, fenugreek, boron, and taurine can support male testosterone production, fertility, and recovery when paired with smart.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-25T18:13:10.338224+00:00",
+    "post_id": 196578,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Discover how mobile TV stands help curators and arts producers reposition screens quickly, improve accessibility, and create smoother experiences at art events.",
+    "after": "<p>Discover how mobile TV stands help curators and arts producers reposition screens quickly, improve accessibility, and create smoother experiences at art events.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
