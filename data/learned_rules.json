@@ -1768,5 +1768,15 @@
     "after": "<p>Learn what same day withdrawal means at online casinos in Australia, which payment methods qualify, KYC requirements, limits, and how to find a fast payout.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-25T18:17:56.177585+00:00",
+    "post_id": 196586,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Zoome Casino's live dealer section offers 300+ titles from 15 providers, with roulette, blackjack, baccarat, and game shows streamed 24/7 for Australian.",
+    "after": "<p>Zoome Casino&#8217;s live dealer section offers 300+ titles from 15 providers, with roulette, blackjack, baccarat, and game shows streamed 24/7 for Australian.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
