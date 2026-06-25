@@ -1758,5 +1758,15 @@
     "after": "<p>Discover how mobile TV stands help curators and arts producers reposition screens quickly, improve accessibility, and create smoother experiences at art events.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-25T18:14:58.878676+00:00",
+    "post_id": 196582,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Learn what same day withdrawal means at online casinos in Australia, which payment methods qualify, KYC requirements, limits, and how to find a fast payout.",
+    "after": "<p>Learn what same day withdrawal means at online casinos in Australia, which payment methods qualify, KYC requirements, limits, and how to find a fast payout.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
