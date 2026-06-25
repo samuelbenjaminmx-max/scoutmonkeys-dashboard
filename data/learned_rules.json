@@ -1778,5 +1778,15 @@
     "after": "<p>Zoome Casino&#8217;s live dealer section offers 300+ titles from 15 providers, with roulette, blackjack, baccarat, and game shows streamed 24/7 for Australian.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-25T18:20:54.421824+00:00",
+    "post_id": 196592,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "From piecey fringe to Birkin bangs, discover the top 2026 bang trends and how UNice wigs with bangs let you try every style risk-free.",
+    "after": "<p>From piecey fringe to Birkin bangs, discover the top 2026 bang trends and how UNice wigs with bangs let you try every style risk-free.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
