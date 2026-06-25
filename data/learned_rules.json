@@ -1738,5 +1738,15 @@
     "after": "<p>Explore how convenience, personalization, and expanded access are reshaping the wellness industry in 2026 through technology, telehealth.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-25T18:11:08.680822+00:00",
+    "post_id": 196573,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Zinc, vitamin D, Tongkat Ali, Shilajit, fenugreek, boron, and taurine can support male testosterone production, fertility, and recovery when paired with smart.",
+    "after": "<p>Zinc, vitamin D, Tongkat Ali, Shilajit, fenugreek, boron, and taurine can support male testosterone production, fertility, and recovery when paired with smart.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
