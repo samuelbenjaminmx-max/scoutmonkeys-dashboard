@@ -1808,5 +1808,15 @@
     "after": "<p>BYD is assuming financial responsibility for crashes caused by its self-driving system in China — a move that challenges how automakers handle autonomous.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-26T19:19:50.849940+00:00",
+    "post_id": 196637,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "Learn how to choose, set up, and maintain access ramps for galleries, studios, and community venues to create a more welcoming entrance for everyone.",
+    "after": "<p>Learn how to choose, set up, and maintain access ramps for galleries, studios, and community venues to create a more welcoming entrance for everyone.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
