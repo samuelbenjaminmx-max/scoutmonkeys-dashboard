@@ -1788,5 +1788,25 @@
     "after": "<p>From piecey fringe to Birkin bangs, discover the top 2026 bang trends and how UNice wigs with bangs let you try every style risk-free.</p>",
     "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
     "severity": "info"
+  },
+  {
+    "timestamp": "2026-06-26T19:18:06.211135+00:00",
+    "post_id": 196632,
+    "site": "cd",
+    "field": "title_edit",
+    "before": "BYD Says It'll Pay for Autonomous Crashes, and That Changes the Conversation",
+    "after": "BYD Says It&#8217;ll Pay for Autonomous Crashes, and That Changes the Conversation",
+    "inferred_rule": "Post title was changed between the draft snapshot and the live post.",
+    "severity": "warning"
+  },
+  {
+    "timestamp": "2026-06-26T19:18:06.211135+00:00",
+    "post_id": 196632,
+    "site": "cd",
+    "field": "meta_description_changed",
+    "before": "BYD is assuming financial responsibility for crashes caused by its self-driving system in China — a move that challenges how automakers handle autonomous.",
+    "after": "<p>BYD is assuming financial responsibility for crashes caused by its self-driving system in China — a move that challenges how automakers handle autonomous.</p>",
+    "inferred_rule": "Meta description or excerpt text changed compared to the draft snapshot.",
+    "severity": "info"
   }
 ]
